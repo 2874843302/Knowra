@@ -1,0 +1,248 @@
+/* One viewport canvas, with independent floating controls and panels. */
+html:has(.reference-classroom) {
+  scrollbar-gutter: auto;
+  overflow: hidden;
+}
+.reference-classroom.classroom {
+  --canvas-safe-top: 132px;
+  display: block;
+}
+.reference-classroom.classroom .class-main {
+  position: absolute;
+  inset: 0;
+  display: block;
+  height: 100%;
+}
+.reference-classroom.classroom .board-scroll {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  scrollbar-width: none;
+  overflow-anchor: none;
+}
+.reference-classroom.classroom .board-scroll::-webkit-scrollbar {
+  display: none;
+}
+.reference-classroom.classroom .board-document {
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  margin: 0;
+  padding: var(--canvas-safe-top) 40px 180px;
+}
+.reference-classroom.classroom .guided-board.mode-board .board-surface {
+  /* A column is a writing lane, not a screenful. The camera follows its lower
+     lines; using the visible viewport as the limit made every small topic spill
+     sideways. Keep roughly two readable screens before continuing to the right. */
+  --board-flow-height: clamp(1040px, calc((100dvh - 240px) * 1.75), 1600px);
+  width: 100%;
+  max-width: none;
+  min-height: calc(100dvh - var(--canvas-safe-top) - 180px);
+  margin: 0;
+}
+.reference-classroom.classroom .board-canvas-viewport {
+  overflow: visible;
+  min-height: calc(100dvh - var(--canvas-safe-top) - 180px);
+  padding: 0;
+  margin: 0;
+}
+/* Lane positions are allocated once from preceding writing, rather than CSS
+   fragmentation, which relocates a growing block when its height is released. */
+.reference-classroom.classroom .guided-board.mode-board .board-surface {
+  display: block;
+  position: relative;
+  columns: auto;
+  height: var(--board-flow-height);
+  min-height: 0;
+  padding: 0;
+}
+.reference-classroom.classroom .guided-board.mode-board .board-frame {
+  display: contents;
+}
+.reference-classroom.classroom .guided-board.mode-board .board-frame > h2,
+.reference-classroom.classroom .guided-board.mode-board .teaching-block {
+  position: absolute;
+}
+.reference-classroom.classroom .guided-board.mode-board .teaching-block {
+  break-inside: avoid-column;
+}
+.reference-classroom.classroom .guided-board.mode-board .teaching-visual {
+  break-inside: avoid-column;
+}
+.reference-classroom.classroom .guided-board.mode-board .markdown pre {
+  max-height: calc(var(--board-flow-height) - 100px);
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block.has-visual {
+  display: block;
+  break-inside: auto;
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block.has-visual
+  > .teaching-writing {
+  break-inside: avoid-column;
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block.has-visual
+  > .teaching-visual {
+  margin-top: 12px;
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block.has-visual.is-current {
+  border-color: transparent;
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block.has-visual.is-current
+  > .teaching-writing {
+  box-shadow: -2px 0 var(--border-brand);
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-writing
+  :is(pre, table, li, blockquote) {
+  break-inside: avoid-column;
+}
+/* Growing and completed blocks have the same geometry. Only later blocks may
+   start a new lane; completion must never release a temporary 1px footprint. */
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block[data-flow-writing="true"] {
+  display: block;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  break-inside: avoid-column;
+  border-color: transparent;
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block[data-flow-writing="true"]::after {
+  content: none;
+}
+.reference-classroom.classroom
+  .guided-board.mode-board
+  .teaching-block.is-current[data-flow-writing="true"]
+  > .teaching-writing {
+  box-shadow: -2px 0 var(--border-brand);
+}
+.reference-classroom.classroom .class-toolbar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 20;
+  pointer-events: none;
+}
+.reference-classroom.classroom .class-toolbar > div {
+  pointer-events: none;
+}
+.reference-classroom.classroom .class-toolbar > div > * {
+  pointer-events: auto;
+}
+.reference-classroom.classroom .board-modebar {
+  position: absolute;
+  top: 84px;
+  left: 24px;
+  right: calc(24px + var(--class-tutor-controls-offset, 0px));
+  z-index: 8;
+  width: auto;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+.reference-classroom.classroom .board-modebar > * {
+  pointer-events: auto;
+}
+.reference-classroom.classroom .class-sync-warning {
+  position: absolute;
+  z-index: 21;
+  top: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(600px, calc(100% - 48px));
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+}
+.classroom-support-panel {
+  position: absolute;
+  z-index: 16;
+  top: 144px;
+  left: 24px;
+  width: min(
+    560px,
+    calc(100% - 48px - var(--class-tutor-controls-offset, 0px))
+  );
+  max-height: calc(100dvh - 236px);
+  padding: 18px 22px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: var(--surface-default);
+  box-shadow: 0 14px 44px
+    color-mix(in srgb, var(--text-primary) 10%, transparent);
+  animation: board-settings-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.classroom-support-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.classroom-support-panel > header span {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.classroom-support-panel > header h2 {
+  margin: 6px 0 0;
+  font-size: 16px;
+}
+.classroom-support-panel .note-editor textarea {
+  min-height: 220px;
+}
+.classroom-support-panel .quiz {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .reference-classroom.classroom {
+    --canvas-safe-top: 152px;
+  }
+  .reference-classroom.classroom .board-document {
+    padding-inline: 20px;
+  }
+  .reference-classroom.classroom .board-modebar {
+    top: 100px;
+    left: 12px;
+    right: 12px;
+  }
+  .reference-classroom.classroom .mobile-class-tabs {
+    position: absolute;
+    top: 56px;
+    inset-inline: 0;
+    z-index: 7;
+  }
+  .classroom-support-panel {
+    top: 150px;
+    left: 12px;
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - 270px);
+    padding: 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .classroom-support-panel {
+    animation: none;
+  }
+}

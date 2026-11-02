@@ -1,0 +1,585 @@
+/* watercolor-style: warm paper, transparent pigment and quiet ink.
+   This layer owns appearance only; route layout and canvas geometry stay in
+   their existing sheets. No external image or texture dependency is needed. */
+:root {
+  --water-peach: #e8a87c;
+  --water-teal: #85cdca;
+  --water-rose: #c38d94;
+  --water-ochre: #d4a373;
+  --paper-wash:
+    radial-gradient(ellipse at 92% 2%, #85cdca25, transparent 36%),
+    radial-gradient(ellipse at 14% 22%, #e8a87c1c, transparent 42%),
+    radial-gradient(ellipse at 74% 92%, #c38d9417, transparent 44%);
+  --paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='paper'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='%238d8070' opacity='.045' filter='url(%23paper)' d='M0 0h160v160H0z'/%3E%3C/svg%3E");
+  --shadow-xs: 0 2px 6px #72645109;
+  --shadow-sm: 0 4px 16px #7264510b;
+  --shadow-md: 0 8px 28px #72645110;
+  --shadow-lg: 0 16px 48px -12px #72645120;
+  --shadow-xl: 0 24px 72px -20px #72645130;
+  --shadow-focus: 0 4px 20px #4a6fa526;
+}
+
+body {
+  background-image: var(--paper-grain), var(--paper-wash);
+  background-attachment: fixed;
+}
+::selection {
+  background: #85cdca55;
+  color: #303c49;
+}
+:is(button, a, [tabindex]):not(
+    input,
+    textarea,
+    select,
+    [data-slot="select-trigger"],
+    .date-picker-trigger
+  ):focus-visible {
+  outline: 2px solid var(--action-primary);
+  outline-offset: 3px;
+  box-shadow: var(--shadow-focus);
+}
+/* Text fields keep their paper edge, without an outer blue focus frame. */
+:is(
+  input,
+  textarea,
+  select,
+  [data-slot="select-trigger"],
+  .date-picker-trigger
+):focus,
+:is(
+  input,
+  textarea,
+  select,
+  [data-slot="select-trigger"],
+  .date-picker-trigger
+):focus-visible,
+.date-picker-trigger[data-state="open"] {
+  outline: none;
+  box-shadow: none;
+  border-color: #d8d5cd;
+}
+:is(
+  input,
+  textarea,
+  select,
+  [data-slot="select-trigger"],
+  .date-picker-trigger
+):focus-visible {
+  caret-color: var(--text-primary);
+}
+:is(input, textarea)::placeholder {
+  color: var(--text-tertiary);
+  opacity: 1;
+}
+/* The complete composer supplies the keyboard focus boundary. */
+.course-assistant .course-help-composer textarea:focus-visible,
+.ai-course-editor .course-edit-composer textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Headings carry the literary tone; navigation and teaching retain their
+   legible sans/handwriting families and the learner's font setting. */
+.page h1,
+.page-heading h2,
+.home-create h1,
+.assistant-empty h2,
+.auth-page h1,
+.modal-header h2 {
+  font-family: var(--font-editorial);
+  font-weight: 600;
+  letter-spacing: 0.015em;
+}
+.page > .page-heading {
+  margin-bottom: 32px;
+}
+.sidebar {
+  background: linear-gradient(168deg, #fffdf9f5, #f7f4edfa 70%, #85cdca12);
+  border-right: 1px solid #dcd5c955;
+}
+.sidebar nav a {
+  border-radius: 14px;
+}
+.sidebar nav a.active {
+  background: linear-gradient(110deg, #d9e7efdf, #e4eeed9c);
+  color: #34527b;
+  box-shadow: inset 0 0 18px #fffdf970;
+}
+.sidebar-continue {
+  border-radius: 18px;
+  background: linear-gradient(130deg, #fffdf9, #edf2ed90);
+  border-color: #d7dfd8;
+}
+.app-header {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 0;
+  box-shadow: none;
+}
+.app-shell {
+  background-color: var(--surface-canvas);
+  background-image: var(--paper-grain), var(--paper-wash);
+  background-attachment: fixed;
+}
+.auth-page {
+  background-color: var(--surface-canvas);
+  background-image: var(--paper-grain), var(--paper-wash);
+}
+.main-shell,
+.page,
+.generation-page {
+  background-color: transparent;
+}
+.home-create {
+  isolation: isolate;
+}
+.home-create::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -32px -28px 20px;
+  border-radius: 45% 55% 53% 47%;
+  background:
+    radial-gradient(ellipse at 22% 38%, #e8a87c34, transparent 51%),
+    radial-gradient(ellipse at 72% 32%, #85cdca38, transparent 52%),
+    radial-gradient(ellipse at 50% 85%, #c38d9420, transparent 58%);
+  filter: blur(24px);
+  pointer-events: none;
+}
+.composer-introduction h1 {
+  font-size: clamp(26px, 2.2vw, 36px);
+  line-height: 1.65;
+}
+
+/* Surfaces share a paper edge, rather than a hard outlined panel. */
+.course-card,
+.lesson-row,
+.settings-section,
+.empty-state,
+.ui-card,
+.calendar-main,
+.course-week-panel,
+.learning-ticket,
+.course-dashboard > section,
+.practice-question,
+.practice-empty,
+.generation-blueprint-card,
+.blueprint-card,
+.course-extend-entry,
+.course-reference .unit-extra-row,
+.assistant-empty,
+.modal,
+[data-slot="dialog-content"],
+[data-slot="date-picker-content"],
+[data-slot="popover-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="select-content"],
+[data-sonner-toast] {
+  border-radius: 24px;
+  border-color: #dcd5c970;
+  background-color: var(--surface-default);
+  background-image:
+    linear-gradient(145deg, #fffdf9ec, #faf8f5a3), var(--paper-grain);
+  box-shadow: var(--shadow-md);
+}
+.course-card {
+  overflow: hidden;
+}
+.learning-ticket {
+  overflow: hidden;
+  background-image: linear-gradient(110deg, #fffdf9, #eff3ed);
+}
+.learning-ticket-stub {
+  background: #e6ede8a0;
+  border-radius: 0 24px 24px 0;
+}
+.learning-ticket-main {
+  background: transparent;
+}
+.course-card-body {
+  padding: 20px 20px 16px;
+}
+.course-card .course-card-meta {
+  margin-bottom: 18px;
+}
+.course-card h3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.8em;
+}
+.course-card-stub {
+  background: transparent;
+  border-color: #d8dfd680;
+}
+.course-card .course-cover {
+  border-radius: 20px;
+}
+.course-cover img {
+  filter: saturate(0.75);
+}
+.course-reference .course-identity-cover .course-cover {
+  border-radius: 22px;
+}
+.course-reference .course-cover-actions > button {
+  background: #fffdf9ed;
+  border-color: #fffdf9;
+  box-shadow: 0 3px 12px #303c4915;
+}
+.course-reference .unit-navigation > button.active {
+  background: linear-gradient(105deg, #dbe7efdd, #e3eeea9c);
+  border-radius: 14px;
+}
+.course-reference .course-detail-tabs .tab-indicator,
+.tab-indicator {
+  background: #e4ece5;
+  border-radius: 12px;
+}
+.lecture-card {
+  padding: 24px;
+}
+.course-reference .course-extend-entry {
+  border-radius: 20px;
+}
+
+/* Composers, forms and popup calendars use the same translucent paper. */
+.composer,
+.assistant-compose,
+.generation-composer,
+.class-tutor .tutor-compose,
+[data-slot="input"],
+[data-slot="textarea"],
+[data-slot="select-trigger"] {
+  background-color: #fffdf9f5;
+  border-color: #d8d5cd;
+  border-radius: 18px;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background-color 400ms ease-out,
+    border-color 400ms ease-out,
+    box-shadow 400ms ease-out;
+}
+.composer,
+.assistant-compose,
+.generation-composer {
+  border-radius: 26px;
+  background-image: radial-gradient(
+    ellipse at 0 100%,
+    #85cdca12,
+    transparent 55%
+  );
+  box-shadow:
+    0 10px 38px -14px #4a6fa527,
+    inset 0 1px #fffdf9;
+}
+.composer:focus-within,
+.assistant-compose:focus-within,
+.generation-composer:focus-within,
+.tutor-compose:focus-within,
+.course-help-composer:focus-within,
+.course-edit-composer:focus-within,
+.ui-search:focus-within,
+.search-field:focus-within,
+.course-search:focus-within,
+.market-search:focus-within {
+  border-color: #d8d5cd;
+  box-shadow: var(--shadow-xs);
+}
+/* Keyboard focus uses a quiet ink edge instead of the pointer's blue ring. */
+:is(
+  .composer,
+  .assistant-compose,
+  .generation-composer,
+  .tutor-compose,
+  .course-help-composer,
+  .course-edit-composer,
+  .ui-search,
+  .search-field,
+  .course-search,
+  .market-search
+):has(:is(input, textarea):focus-visible),
+:is(
+  input,
+  textarea,
+  select,
+  [data-slot="select-trigger"],
+  .date-picker-trigger
+):focus-visible {
+  border-color: #aaa094;
+}
+[data-slot="button"] {
+  transition-duration: 400ms;
+  transition-timing-function: ease-out;
+}
+[data-slot="button"][data-variant="default"],
+.btn-primary {
+  background: linear-gradient(135deg, #4a6fa5, #42658f);
+  color: #fffdf9;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px #4a6fa51c;
+}
+[data-slot="button"][data-variant="outline"] {
+  border-radius: 12px;
+}
+.badge,
+.tag {
+  border-radius: 999px;
+}
+.assistant-suggestions > button {
+  background: linear-gradient(145deg, #fffdf9, #f1f3ec);
+  border-color: #dcd5c9a0;
+  border-radius: 18px;
+}
+.calendar-day.today {
+  background: #dce9eb;
+}
+[data-slot="skeleton"] {
+  background-color: #e8e4dd;
+}
+.settings-section {
+  padding: 28px;
+  margin-bottom: 24px;
+}
+.settings-tabs {
+  gap: 24px;
+}
+.settings-tab-list {
+  height: auto;
+  max-width: 100%;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid #dcd5c970;
+  border-radius: 20px;
+  background: linear-gradient(115deg, #e6eee9a6, #e9eef3a6);
+}
+.settings-tab-list [data-slot="tabs-trigger"] {
+  flex: 0 1 auto;
+  min-height: 44px;
+  padding: 10px 18px;
+  border-radius: 15px;
+  font-size: var(--text-sm);
+}
+.settings-tab-list .tab-indicator {
+  border-radius: inherit;
+  background: #fffdf9e6;
+  box-shadow: 0 3px 10px #4a6fa50c;
+}
+.settings-tab-list [data-state="active"] {
+  color: var(--action-primary);
+}
+.settings-panel {
+  min-width: 0;
+}
+.settings-panel[hidden] {
+  display: none;
+}
+.settings-panel > .settings-section:last-child {
+  margin-bottom: 0;
+}
+.course-bookmark.saved {
+  color: var(--action-primary);
+}
+.course-bookmark.saved svg {
+  fill: currentColor;
+}
+.course-reference .course-publisher > .course-bookmark {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.favorites-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.favorites-toolbar .search-field {
+  width: min(100%, 320px);
+}
+.favorites-toolbar .search-field input,
+.favorites-toolbar .search-field input:focus-visible {
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+}
+.favorites-toolbar > span {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.morphing-action[data-status="success"]:disabled {
+  background: var(--feedback-success-bg);
+  color: var(--feedback-success);
+  box-shadow: none;
+}
+:is(input, textarea, [data-slot="select-trigger"])[aria-invalid="true"] {
+  border-color: var(--feedback-danger);
+}
+.skeleton {
+  background: linear-gradient(110deg, #efece6, #f6f2eb, #efece6);
+}
+.creation-error,
+.generation-error,
+[role="alert"] {
+  border-radius: 16px;
+  border-color: #c38d9460;
+}
+
+/* The entire classroom remains the canvas. Pigment lives at its outer edge,
+   leaving a calm reading field behind equations and handwriting. */
+.reference-classroom.classroom {
+  background-color: #faf8f5;
+  background-image:
+    var(--paper-grain),
+    radial-gradient(ellipse at 98% 0%, #85cdca22, transparent 44%),
+    radial-gradient(ellipse at 0% 100%, #e8a87c1b, transparent 45%);
+}
+.reference-classroom.classroom .board-scroll {
+  background-color: transparent;
+  background-image: radial-gradient(#b8aca34d 0.65px, transparent 0.65px);
+  background-size: 24px 24px;
+}
+.reference-classroom.classroom .class-main {
+  background: transparent;
+}
+.class-tutor,
+.board-settings,
+.lesson-stage-choices,
+.classroom .class-topbar button {
+  border-color: #ded7cd9c;
+  background-color: #fffdf9f2;
+  box-shadow: var(--shadow-sm);
+}
+.class-tutor {
+  border-radius: 26px;
+  background-color: #fffdf9;
+}
+.teaching-visual {
+  border-radius: 22px;
+  background-color: #fffdf9db;
+  border-color: #d8dfd6;
+}
+.teaching-visual:is(.visual-comparison, .visual-bindings, .visual-trace) {
+  padding: 20px 24px;
+  border: 1px solid #d8dfd680;
+  background-image: linear-gradient(135deg, #fffdf9, #f1f4ed70);
+}
+.teaching-visual:is(.visual-comparison, .visual-bindings, .visual-trace)
+  > figcaption {
+  margin: 0 0 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.65;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.visual-comparison .comparison-row {
+  padding: 16px 0;
+}
+.visual-comparison .comparison-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.visual-comparison .comparison-row > small {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.visual-comparison .comparison-row > small:first-child {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.visual-comparison .comparison-row > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1.2fr);
+  gap: 12px;
+  margin: 8px 0;
+  line-height: 1.65;
+}
+.visual-comparison .comparison-row :is(code, strong) {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-family: var(--font-board);
+}
+.visual-comparison .comparison-row code {
+  font-size: 16px;
+}
+.visual-comparison .comparison-row strong {
+  font-size: 18px;
+  font-weight: 600;
+}
+.visual-comparison .comparison-row > div > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+}
+
+/* Board tables are teaching material, not compact dashboard metadata. */
+.reference-classroom .board-document .markdown table {
+  width: 100%;
+  font-size: 18px;
+  line-height: 1.75;
+  font-family: var(--font-board);
+  color: var(--text-primary);
+  background: #fffdf980;
+}
+.reference-classroom .board-document .markdown :is(th, td) {
+  padding: 12px 16px;
+  min-width: 100px;
+  vertical-align: top;
+}
+.reference-classroom .board-document .markdown th {
+  font-weight: 700;
+  background: #e8efea80;
+}
+.reference-classroom .board-document .markdown table code {
+  font-size: 0.95em;
+}
+.teaching-writing mark {
+  background: #e8a87c38;
+}
+.markdown pre {
+  background: #e7ecec99;
+  border-radius: 16px;
+}
+.markdown blockquote {
+  border-color: #85cdca;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .course-card {
+    transition:
+      transform 400ms ease-out,
+      box-shadow 400ms ease-out;
+  }
+  .course-card:hover {
+    transform: scale(1.02);
+    box-shadow: var(--shadow-lg);
+  }
+  [data-slot="button"]:not(:disabled):hover {
+    filter: brightness(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto;
+    transition-duration: 0ms;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+  .course-card:hover {
+    transform: none;
+  }
+}

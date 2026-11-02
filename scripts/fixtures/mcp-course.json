@@ -1,0 +1,72 @@
+{
+  "title": "共享状态课程",
+  "description": "用购物车掌握跨组件数据流",
+  "units": [
+    {
+      "title": "共享状态",
+      "summary": "理解跨组件数据流",
+      "lessons": [
+        {
+          "title": "认识 Store",
+          "summary": "用购物车解释共享状态",
+          "content": "## 概念\n明确数据来源。\n\n## 实例\n购物车共享数量。\n\n## 验证\n检查组件间的同步。",
+          "teaching": {
+            "design": {
+              "problem": "如何用具体场景理解共享状态？",
+              "approach": "先观察例子，再解释结论与使用边界。",
+              "representations": ["worked-example"],
+              "rationale": "用具体操作检验当前结论。"
+            },
+            "steps": [
+              {
+                "title": "统一状态",
+                "board": "组件 → Store → 组件",
+                "narration": "想象多个收银台共享同一本账本，各组件从同一份状态读取数量。",
+                "role": "example",
+                "delivery": {
+                  "write": "想象多个收银台共享"
+                }
+              }
+            ]
+          },
+          "quiz": {
+            "question": "状态应该从哪里读取？",
+            "options": ["统一的 Store", "每个组件重复创建"],
+            "answer": 0,
+            "explanation": "同一个数据来源保持同步。"
+          }
+        },
+        {
+          "title": "Store 的使用",
+          "summary": "用购物车解释共享状态",
+          "content": "## 概念\n明确数据来源。\n\n## 实例\n购物车共享数量。\n\n## 验证\n检查组件间的同步。",
+          "teaching": {
+            "design": {
+              "problem": "如何用具体场景理解共享状态？",
+              "approach": "先观察例子，再解释结论与使用边界。",
+              "representations": ["worked-example"],
+              "rationale": "用具体操作检验当前结论。"
+            },
+            "steps": [
+              {
+                "title": "统一状态",
+                "board": "组件 → Store → 组件",
+                "narration": "想象多个收银台共享同一本账本，各组件从同一份状态读取数量。",
+                "role": "example",
+                "delivery": {
+                  "write": "想象多个收银台共享"
+                }
+              }
+            ]
+          },
+          "quiz": {
+            "question": "状态应该从哪里读取？",
+            "options": ["统一的 Store", "每个组件重复创建"],
+            "answer": 0,
+            "explanation": "同一个数据来源保持同步。"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+node_modules/
+dist/
+.local/
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Local verification artifacts and browser authentication metadata
+.test/
+/auth/
+/report/
+/screenshots/
+/test/
+/qa*-results.json
+*.log
+/_ui-check.mjs
+
+# Runtime databases and private credentials
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.pem
+*.key
+.DS_Store
+Thumbs.db

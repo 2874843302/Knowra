@@ -1,0 +1,16 @@
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+httpx>=0.28,<1
+pydantic-settings>=2.8,<3
+python-multipart>=0.0.20,<1
+pypdf>=5,<7
+defusedxml>=0.7,<1
+pytest>=8,<10
+mcp>=2.3,<3
+sherpa-onnx==1.13.3
+numpy>=1.26,<3
+onnxruntime==1.23.2
+tokenizers==0.21.4
+scipy==1.15.3
+soundfile==0.13.1
+jieba==0.42.1

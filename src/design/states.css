@@ -1,0 +1,40 @@
+/* Interaction states follow page composition so every surface keeps focus visible. */
+.ui-search:focus-within,
+.search-field:focus-within,
+.course-search:focus-within,
+.market-search:focus-within,
+.composer:focus-within,
+.tutor-compose:focus-within,
+.assistant-compose:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-focus);
+}
+.composer:focus-within,
+.assistant-compose:focus-within,
+.generation-composer:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-composer-focus);
+}
+.assistant-compose,
+.generation-composer {
+  box-shadow: var(--shadow-composer);
+}
+
+[data-slot="button"]:focus-visible,
+[data-slot="tabs-trigger"]:focus-visible,
+[data-slot="checkbox"]:focus-visible,
+[data-slot="select-trigger"]:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+/* Async lifecycle states override the button's default utility surface. */
+.morphing-action[data-status="loading"]:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.morphing-action[data-status="success"]:disabled {
+  opacity: 1;
+  background: var(--feedback-success-bg);
+  color: var(--feedback-success);
+  box-shadow: none;
+}

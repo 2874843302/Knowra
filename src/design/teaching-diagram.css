@@ -1,0 +1,127 @@
+/* Illustrations sit on the board; they are not dashboard cards. */
+.reference-classroom .teaching-diagram {
+  width: min(100%, 640px);
+  margin: 20px 0 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #6741d9;
+}
+.teaching-diagram > figcaption {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-board);
+  font-size: 17px;
+}
+.teaching-diagram > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: var(--font-board);
+  font-size: 21px;
+}
+.diagram-shape {
+  color: #6741d9;
+}
+.diagram-tone-1 {
+  color: #278477;
+}
+.diagram-shape :is(rect, circle) {
+  stroke: currentColor;
+  stroke-width: 1.7;
+  fill: color-mix(in srgb, currentColor 5%, transparent);
+  transition: fill 200ms ease;
+}
+.diagram-shape.is-focused rect {
+  fill: color-mix(in srgb, currentColor 12%, transparent);
+}
+.diagram-shape text {
+  fill: currentColor;
+  font-weight: 600;
+}
+.diagram-connector,
+.diagram-intersection path {
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+.diagram-intersection text {
+  fill: currentColor;
+  font-size: 19px;
+  font-weight: 600;
+}
+.diagram-explore {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 32px;
+  margin-top: 8px;
+  font-family: var(--font-sans);
+}
+.diagram-explore button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+}
+.diagram-explore button[aria-pressed="true"] {
+  color: #6741d9;
+  background: color-mix(in srgb, #6741d9 8%, transparent);
+}
+.diagram-explore button:hover {
+  background: var(--surface-subtle);
+}
+.diagram-explore button:focus-visible {
+  outline: 2px solid #6741d9;
+  outline-offset: 2px;
+}
+.diagram-explanation {
+  display: grid;
+  min-height: 64px;
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, #6741d9 25%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.diagram-explanation p {
+  margin: 0;
+}
+.diagram-explanation > * {
+  grid-area: 1 / 1;
+}
+.diagram-detail-reserve {
+  visibility: hidden;
+  user-select: none;
+}
+.teaching-diagram .diagram-caption {
+  margin: 8px 0 0;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  line-height: 1.8;
+  color: var(--text-tertiary);
+}
+.reference-classroom .tutor-teaching-entry > p,
+.reference-classroom .tutor-message .markdown {
+  font-size: 14px;
+  line-height: 1.95;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .diagram-shape :is(rect, circle),
+  .diagram-explore button {
+    transition: none;
+  }
+}

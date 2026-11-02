@@ -1,0 +1,287 @@
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { toast as sonnerToast } from "sonner";
+import { Button } from "./design/primitives";
+import { catalog, initialState } from "./data";
+import {
+  BASE_KEY,
+  changes,
+  mergeState,
+  workspaceRequest as requestWorkspace,
+} from "./persistence";
+import { useAuth } from "./auth";
+
+const Store = createContext(null);
+export const STORAGE_KEY = "knowra-workspace-v1";
+export function StoreProvider({ children }) {
+  const { user } = useAuth();
+  const accountStorageKey = `${STORAGE_KEY}:${user.id}`;
+  const accountBaseKey = `${BASE_KEY}:${user.id}`;
+  const workspaceRequest = (method, payload) =>
+    requestWorkspace(method, payload, user.id);
+  const [state, setState] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(accountStorageKey));
+      if (
+        saved?.version === 1 &&
+        Array.isArray(saved.joined) &&
+        Array.isArray(saved.customCourses)
+      )
+        return { ...initialState(), ...saved };
+    } catch {}
+    return { ...initialState(), name: user.name };
+  });
+  const [storageError, setStorageError] = useState(false);
+  const [sync, setSync] = useState({ status: "loading" });
+  const [ready, setReady] = useState(false);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const server = useRef(null);
+  const busy = useRef(false);
+  const alive = useRef(true);
+  const flushRef = useRef(null);
+  const saveBase = (value) => {
+    server.current = value;
+    try {
+      localStorage.setItem(accountBaseKey, JSON.stringify(value.state));
+    } catch {}
+  };
+  const initialize = async () => {
+    setSync({ status: "loading" });
+    try {
+      const value = await workspaceRequest("POST", { state: stateRef.current });
+      let base;
+      try {
+        base = JSON.parse(localStorage.getItem(accountBaseKey));
+      } catch {}
+      const merged = base
+        ? mergeState(base, stateRef.current, value.state)
+        : value.state;
+      saveBase(value);
+      if (alive.current) {
+        stateRef.current = { ...initialState(), ...merged };
+        setState(stateRef.current);
+        setReady(true);
+        setSync({ status: "saved", date: value.updatedAt });
+      }
+    } catch (error) {
+      if (alive.current) setSync({ status: "error", error: error.message });
+    }
+  };
+  useEffect(() => {
+    alive.current = true;
+    initialize();
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  flushRef.current = async () => {
+    if (!alive.current || !server.current || busy.current) return;
+    const snapshot = stateRef.current;
+    const operations = changes(server.current.state, snapshot);
+    if (!operations.length) {
+      setSync({ status: "saved", date: server.current.updatedAt });
+      return;
+    }
+    busy.current = true;
+    setSync({ status: "saving" });
+    let retry = false;
+    try {
+      const base = server.current.state;
+      const value = await workspaceRequest("PATCH", {
+        revision: server.current.revision,
+        operations,
+      });
+      const merged = value.conflict
+        ? mergeState(base, stateRef.current, value.state)
+        : mergeState(snapshot, stateRef.current, value.state);
+      saveBase(value);
+      if (alive.current) {
+        stateRef.current = merged;
+        setState(merged);
+        setSync({ status: "saved", date: value.updatedAt });
+      }
+      retry = true;
+    } catch (error) {
+      if (alive.current) setSync({ status: "error", error: error.message });
+    } finally {
+      busy.current = false;
+      if (retry && alive.current) setTimeout(() => flushRef.current(), 100);
+    }
+  };
+  useEffect(() => {
+    if (!ready) return;
+    if (server.current && changes(server.current.state, state).length) {
+      setSync({ status: "saving" });
+    }
+    const timer = setTimeout(() => flushRef.current(), 350);
+    return () => clearTimeout(timer);
+  }, [state, ready]);
+  useEffect(() => {
+    const refresh = async () => {
+      if (!server.current || busy.current || document.hidden) return;
+      try {
+        const value = await workspaceRequest();
+        const merged = mergeState(
+          server.current.state,
+          stateRef.current,
+          value.state,
+        );
+        saveBase(value);
+        stateRef.current = merged;
+        setState(merged);
+      } catch {}
+    };
+    const online = () => (server.current ? flushRef.current() : initialize());
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("online", online);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+  const [provider, setProvider] = useState({
+    configured: false,
+    loading: true,
+  });
+  const [create, setCreate] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    try {
+      localStorage.setItem(accountStorageKey, JSON.stringify(state));
+      setStorageError(false);
+    } catch {
+      setStorageError(true);
+    }
+  }, [state]);
+  const notify = (message) => sonnerToast(message);
+  const refreshProvider = async () => {
+    try {
+      const r = await fetch("/api/provider");
+      if (!r.ok) throw new Error();
+      setProvider({ ...(await r.json()), loading: false });
+    } catch {
+      setProvider({ configured: false, loading: false, unavailable: true });
+    }
+  };
+  useEffect(() => {
+    refreshProvider();
+  }, []);
+  const courses = [...catalog, ...state.customCourses].map((course) => ({
+    ...course,
+    ...state.courseEdits?.[course.id],
+  }));
+  const activity = (title, type, url) => ({
+    id: crypto.randomUUID(),
+    title,
+    type,
+    url,
+    date: new Date().toISOString(),
+  });
+  const join = (id) => {
+    if (state.joined.includes(id)) return;
+    const c = courses.find((c) => c.id === id);
+    setState((s) => ({
+      ...s,
+      joined: [...s.joined, id],
+      activities: [
+        activity(`加入课程：${c.title}`, "course", `/course/${id}`),
+        ...s.activities,
+      ],
+    }));
+    notify("已加入我的课程");
+  };
+  const toggleBookmark = (id) => {
+    if (!courses.some((course) => course.id === id)) return;
+    const saved = state.bookmarks.includes(id);
+    setState((s) => ({
+      ...s,
+      bookmarks: s.bookmarks.includes(id)
+        ? s.bookmarks.filter((value) => value !== id)
+        : [...s.bookmarks, id],
+    }));
+    notify(saved ? "已取消收藏" : "已收藏课程");
+  };
+  return (
+    <Store.Provider
+      value={{
+        state,
+        setState,
+        courses,
+        notify,
+        storageError,
+        sync,
+        retrySync: () => (server.current ? flushRef.current() : initialize()),
+        provider,
+        refreshProvider,
+        create,
+        setCreate,
+        searchOpen,
+        setSearchOpen,
+        activity,
+        join,
+        toggleBookmark,
+      }}
+    >
+      {ready ? (
+        children
+      ) : (
+        <div className="workspace-loading">
+          <h2>知序 Knowra</h2>
+          <p>{sync.status === "error" ? sync.error : "正在打开学习空间…"}</p>
+          {sync.status === "error" && (
+            <Button variant="primary" onClick={initialize}>
+              重新连接
+            </Button>
+          )}
+        </div>
+      )}
+    </Store.Provider>
+  );
+}
+export const useStore = () => useContext(Store);
+export const localDate = (date = new Date()) =>
+  new Date(date).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+export const dateLabel = (date) =>
+  new Date(date).toLocaleDateString("zh-CN", {
+    month: "long",
+    day: "numeric",
+    timeZone: "Asia/Shanghai",
+  });
+export async function aiRequest(
+  messages,
+  kind = "chat",
+  signal,
+  conversationId,
+) {
+  const r = await fetch("/api/ai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages,
+      kind,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    }),
+    signal,
+  });
+  const data = await r.json();
+  if (!r.ok) {
+    if (r.status === 401)
+      window.dispatchEvent(new Event("knowra-auth-required"));
+    throw new Error(data.error || "请求失败，请重试。");
+  }
+  return data.content;
+}
+export function download(name, text, mime = "text/markdown;charset=utf-8") {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

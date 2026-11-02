@@ -1,0 +1,72 @@
+@layer theme, tokens, base, layouts, workspace, components, utilities, pages, states, watercolor;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@import "./fonts.css";
+@import "./tokens.css" layer(tokens);
+@import "./base.css" layer(base);
+@import "./layouts.css" layer(layouts);
+@import "./workspace.css" layer(workspace);
+@import "./shadcn.css" layer(components);
+@import "./pages.css" layer(pages);
+@import "./course-practice.css" layer(pages);
+@import "./course-editor.css" layer(pages);
+@import "./account.css" layer(pages);
+@import "./classroom-canvas.css" layer(pages);
+@import "./teaching-diagram.css" layer(pages);
+@import "./blueprint.css" layer(pages);
+@import "./states.css" layer(states);
+@import "./watercolor.css" layer(watercolor);
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-background: var(--surface-canvas);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--surface-default);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--surface-default);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--action-primary);
+  --color-primary-foreground: var(--text-on-action);
+  --color-secondary: var(--surface-muted);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--text-tertiary);
+  --color-accent: var(--action-subtle);
+  --color-accent-foreground: var(--action-primary-active);
+  --color-destructive: var(--action-danger);
+  --color-destructive-foreground: var(--text-inverse);
+  --color-border: var(--border-default);
+  --color-input: var(--border-default);
+  --color-ring: var(--border-focus);
+  --color-success: var(--feedback-success);
+  --color-success-muted: var(--feedback-success-bg);
+  --color-success-border: var(--feedback-success-border);
+  --color-warning: var(--feedback-warning);
+  --color-warning-muted: var(--feedback-warning-bg);
+  --color-warning-border: var(--feedback-warning-border);
+  --color-danger: var(--feedback-danger);
+  --color-danger-muted: var(--feedback-danger-bg);
+  --color-danger-border: var(--feedback-danger-border);
+  --color-info: var(--feedback-info);
+  --color-info-muted: var(--feedback-info-bg);
+  --color-info-border: var(--feedback-info-border);
+  --color-sidebar: var(--surface-brand);
+  --color-sidebar-foreground: var(--text-secondary);
+  --color-sidebar-accent: var(--surface-selected);
+  --color-sidebar-accent-foreground: var(--action-primary);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+}

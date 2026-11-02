@@ -1,0 +1,31 @@
+{
+  "assets": {
+    "home.svg": "https://agent.hyperknow.io/components/sidebar/home.svg?v=2",
+    "courses.svg": "https://agent.hyperknow.io/components/sidebar/courses.svg?v=1",
+    "feed.svg": "https://agent.hyperknow.io/components/sidebar/learning-feed.svg?v=2",
+    "history.svg": "https://agent.hyperknow.io/components/sidebar/history.svg?v=2",
+    "market.svg": "https://agent.hyperknow.io/pages/mainPages/home/craft-courses-tab/market-place.svg",
+    "collapse.svg": "https://agent.hyperknow.io/components/sidebar/sidebar-collapse.svg",
+    "avatar.svg": "https://agent.hyperknow.io/avatar/1.svg",
+    "sociology.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/091d5945-4f34-4bfc-9d3b-c34b76d62ee5/cover_wide.png?v=1787315002",
+    "biology.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/15f85274-21e3-4a49-880d-c00bed342c5c/cover_wide-419478fe35.png?v=1789634072",
+    "machine-learning.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/1d4735cf-c52e-49d8-89a1-86d91b184c98/cover_wide.png?v=1787314561",
+    "ai.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/e76d14d2-dc70-47e7-a976-490b0f31497a/cover_wide-75b29affed.png?v=1789526088",
+    "python.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/b7576abf-07e1-4c40-b682-52a4e3b446c6/cover_wide.png?v=1787312498",
+    "math.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/49e290b1-2376-4f32-8c28-ef8567cd3f61/cover_wide.png?v=1787312498",
+    "cognitive.png": "https://api-hk.hyperknow.io/api/v1/marketplace/cover/2f2b0715-6318-4205-ae35-fac328658dcc/cover_wide.png?v=1787314429"
+  },
+  "svgExports": {
+    "vertical-ticket.svg": "https://agent.hyperknow.io/ .course-ticket-mask-svg; cover image removed",
+    "horizontal-ticket.svg": "https://agent.hyperknow.io/courses .horizontal-course-ticket-mask-svg"
+  },
+  "classroomFonts": {
+    "Virgil-Regular.woff2": "https://static-hk.hyperknow.io/_d/assets/woff2/Virgil-Regular-hO16qHwV.woff2"
+  },
+  "fontSheets": [
+    "https://static-hk.hyperknow.io/_d/font/Satoshi_Complete/Fonts/WEB/css/satoshi.css",
+    "https://static-hk.hyperknow.io/_d/font/EB_Garamond/eb-garamond.css",
+    "https://static-hk.hyperknow.io/_d/fonts/misans/misans.css",
+    "https://static-hk.hyperknow.io/_d/font/ChillDuanHeiSong/chill-duanhei-song.css"
+  ]
+}
