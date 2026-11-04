@@ -29,45 +29,80 @@ import {
 } from "./ui";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Checkbox } from "./components/ui/checkbox";
+import {
+  mastery,
+  masteryLevels,
+  masteryDescriptions,
+  countLessonMastery,
+} from "./lib/lesson-mastery";
+export { mastery, masteryLevels } from "./lib/lesson-mastery";
 
-export const mastery = (progress = {}) =>
-  progress.mastery ||
-  (progress.quizCorrect
-    ? "mastered"
-    : progress.completed
-      ? "familiar"
-      : progress.visited || progress.quizCorrect === false
-        ? "attempted"
-        : "new");
-export const masteryLevels = [
-  ["mastered", "已掌握"],
-  ["proficient", "熟练"],
-  ["familiar", "熟悉"],
-  ["attempted", "已尝试"],
-  ["new", "未开始"],
-];
-
-export function LearningPath({ course, unit, onProject, onExam, children }) {
+export function LearningPath({
+  course,
+  unit,
+  onProject,
+  onExam,
+  filter = "all",
+  onFilterChange,
+  children,
+}) {
   const { state } = useStore();
+  const counts = countLessonMastery(unit.lessons, state.progress, course.id);
+  const projectIndex = course.units.indexOf(unit);
+  const projectDone =
+    state.projects?.[`${course.id}/${projectIndex}`]?.submitted;
+  const questions = unit.lessons.filter((lesson) => lesson.quiz);
+  const assessed = questions.filter((lesson) => {
+    const progress = state.progress[`${course.id}/${lesson.id}`];
+    return typeof progress?.quizCorrect === "boolean" || progress?.quizReviewed;
+  }).length;
   return (
     <div className="learning-path-wrap">
-      <div className="mastery-legend">
+      <div
+        className="mastery-legend"
+        role="group"
+        aria-label="按掌握程度筛选小节"
+      >
+        <Button
+          variant="surface"
+          size="surface"
+          aria-pressed={filter === "all"}
+          onClick={() => onFilterChange?.("all")}
+        >
+          全部 <b>{unit.lessons.length}</b>
+        </Button>
         {masteryLevels.map(([key, label]) => (
-          <span key={key}>
+          <Button
+            variant="surface"
+            size="surface"
+            key={key}
+            aria-pressed={filter === key}
+            title={masteryDescriptions[key]}
+            onClick={() => onFilterChange?.(filter === key ? "all" : key)}
+          >
             <i className={`mastery-dot ${key}`}>
               {key === "mastered" && <Check size={12} />}
             </i>
-            {label}
-          </span>
+            {label} <b>{counts[key]}</b>
+          </Button>
         ))}
+      </div>
+      <div className="mastery-overview">
         <span>
-          <Flag size={12} />
-          项目
+          {filter === "all"
+            ? "测验记录自动更新，也可以在小节中自评。"
+            : masteryDescriptions[filter]}
         </span>
-        <span>
-          <ListChecks size={12} />
-          测验
-        </span>
+        <div>
+          <Button variant="surface" size="surface" onClick={onProject}>
+            <Flag size={12} />
+            项目 · {projectDone ? "已提交" : "待完成"}
+          </Button>
+          <Button variant="surface" size="surface" onClick={onExam}>
+            <ListChecks size={12} />
+            测验 · {assessed}/{questions.length}
+          </Button>
+        </div>
       </div>
       <div className="learning-path-row">
         <div className="learning-path" aria-label="单元学习路径">
@@ -512,6 +547,7 @@ export function CourseEditor({ course, onClose }) {
             courseEdits: {
               ...s.courseEdits,
               [course.id]: {
+                ...s.courseEdits?.[course.id],
                 title: title.trim(),
                 description,
                 units: units.map((u) => ({

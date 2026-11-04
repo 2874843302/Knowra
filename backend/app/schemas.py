@@ -42,9 +42,15 @@ class UpdateWorkspace(BaseModel):
 
 
 class ProviderInput(BaseModel):
+    id: str | None = Field(default=None, min_length=1, max_length=100)
+    name: str = Field(default="", max_length=100)
     baseUrl: str = Field(max_length=2000)
-    model: str = Field(max_length=200)
+    model: str = Field(default="", max_length=200)
     apiKey: str = Field(default="", max_length=4000)
+
+
+class ProviderSelection(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
 
 
 class Message(BaseModel):
@@ -54,8 +60,9 @@ class Message(BaseModel):
 
 class AIRequest(BaseModel):
     messages: list[Message] = Field(min_length=1, max_length=40)
-    kind: Literal["chat", "outline", "course_plan", "course_unit", "course_search", "course_questions", "classroom_adapt", "course_practice", "course_edit_plan", "course_edit_lesson"] = "chat"
+    kind: Literal["chat", "chat_agent", "outline", "course_plan", "course_unit", "course_search", "course_questions", "classroom_adapt", "course_practice", "course_edit_plan", "course_edit_lesson"] = "chat"
     conversation_id: UUID | None = None
+    provider_id: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class CourseResearchRequest(BaseModel):

@@ -821,6 +821,37 @@ html {
 .learning-sketch-spark {
   color: var(--action-primary);
 }
+.learning-book-3d {
+  position: relative;
+  display: inline-block;
+  width: 1.5em;
+  height: 1.5em;
+  flex: 0 0 1.5em;
+  aspect-ratio: 1;
+  vertical-align: middle;
+  pointer-events: none;
+}
+.learning-book-reserve {
+  display: inline-block;
+  width: 1.5em;
+  height: 1.5em;
+  flex: 0 0 1.5em;
+}
+.learning-book-renderer,
+.learning-book-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.learning-book-renderer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.learning-book-3d:has([data-ready="true"]) .learning-book-fallback {
+  visibility: hidden;
+}
 .home-create:has(.composer:focus-within) .learning-sketch {
   opacity: 1;
   color: var(--action-primary);
@@ -882,11 +913,15 @@ html {
 }
 .home-wordmark {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 3px;
-  font-size: 29px;
+  font-size: inherit;
+  line-height: inherit;
   color: var(--text-primary);
   font-weight: 750;
+}
+.home-wordmark > :is(.learning-book-3d, .learning-book-reserve) {
+  align-self: center;
 }
 .home-wordmark svg {
   color: var(--action-primary);
@@ -2007,7 +2042,7 @@ html {
     gap: 4px;
   }
   .home-wordmark {
-    font-size: 24px;
+    font-size: inherit;
   }
   .home-wordmark svg {
     width: 23px;
@@ -2534,7 +2569,7 @@ html {
     width: 100%;
   }
   .course-reference .course-identity-cover .course-cover {
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 4 / 3;
   }
   .course-reference .course-cover-actions {
     top: auto;
@@ -2573,9 +2608,6 @@ html {
   }
   .course-reference .course-identity-cover {
     margin-bottom: 8px;
-  }
-  .course-reference .course-identity-cover .course-cover {
-    aspect-ratio: 2.4;
   }
   .course-reference .course-cover-actions {
     top: auto;

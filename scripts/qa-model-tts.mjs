@@ -23,7 +23,7 @@ const child = spawn(
   python,
   [
     "-c",
-    "import os,sys;sys.path.insert(0,'backend');from pathlib import Path;import uvicorn;from app.main import create_app;from app.core.config import Settings;uvicorn.run(create_app(Settings(knowra_data_dir=Path(os.environ['KNOWRA_DATA_DIR']),knowra_tts_model_dir=Path('.local/tts/models/kokoro-int8-multi-lang-v1_1').resolve(),_env_file=None)),host='127.0.0.1',port=8123,log_level='error')",
+    "import os,sys;sys.path.insert(0,'backend');sys.path.insert(0,'scripts');from pathlib import Path;import uvicorn;from app.main import create_app;from qa_database import fixture_settings;uvicorn.run(create_app(fixture_settings(knowra_data_dir=Path(os.environ['KNOWRA_DATA_DIR']),knowra_tts_model_dir=Path('.local/tts/models/kokoro-int8-multi-lang-v1_1').resolve(),_env_file=None)),host='127.0.0.1',port=8123,log_level='error')",
   ],
   {
     cwd: root,

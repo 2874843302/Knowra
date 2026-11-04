@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useStore, aiRequest } from "./store";
+import { ModelSelector } from "./components/model-selector";
 import { lessonsOf } from "./data";
 import {
   courseGenerationConcurrency,
@@ -26,9 +27,9 @@ import {
 import {
   courseBrief,
   generateCourseLecture,
+  generateCoursePlan,
   learningDepthOptions,
   parseCourseJSON,
-  validateCoursePlan,
   validateSearchQueries,
   validateCourseQuestions,
   researchRequest,
@@ -50,6 +51,9 @@ import { SpotlightSurface } from "./components/ui/spotlight-surface";
 import { MorphingAction } from "./components/ui/morphing-action";
 import { AgentActivityItem } from "./components/ui/agent-activity-item";
 import { CourseBlueprintPanel } from "./components/course-blueprint-panel";
+import { SchoolLearningFields } from "./components/school-learning-fields";
+import { learningContext, learningModeError } from "./lib/learning-mode";
+import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 
 function ChoiceQuestion({ question, value, disabled, onChange, index = 0 }) {
   const options = question.options;
@@ -275,6 +279,8 @@ export function CourseCreationPage() {
 
 function GenerationConversation({ draftId }) {
   const { state, setState, provider, setCreate, activity, notify } = useStore();
+  const modelRequest = (messages, kind, signal, conversationId) =>
+    aiRequest(messages, kind, signal, conversationId, provider.activeId);
   const draft = state.courseDrafts[draftId];
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -411,7 +417,23 @@ function GenerationConversation({ draftId }) {
     });
   const completeAnswers =
     !!questions.length && questions.every((q) => draft.answers[q.key]);
-  const canPlan = completeAnswers || (!questions.length && !!draft.plan);
+  const modeContext = learningContext(draft);
+  const modeError = learningModeError(draft, draft.files.length > 0);
+  const canPlan =
+    !draft.modeQuestionsStale &&
+    !modeError &&
+    (completeAnswers || (!questions.length && !!draft.plan));
+  const changeModeContext = (values) =>
+    patch({
+      ...values,
+      ...(values.learningMode &&
+      values.learningMode !== modeContext.learningMode
+        ? { modeQuestionsStale: true }
+        : {}),
+      preferencesChanged: !!draft.plan,
+      error: "",
+      interrupted: false,
+    });
   const changeFiles = (files) =>
     patch({
       files,
@@ -446,6 +468,10 @@ function GenerationConversation({ draftId }) {
   };
   const researchCourse = async (refresh = false) => {
     if (!available || !draft.topic) return;
+    if (modeError) {
+      notify(modeError);
+      return;
+    }
     const request = startRequest("researching");
     if (!request) return;
     if (refresh)
@@ -460,36 +486,45 @@ function GenerationConversation({ draftId }) {
     const active = () =>
       controller.current === request && !request.signal.aborted;
     try {
-      let queries = refresh ? [] : draft.searchQueries || [];
-      if (!queries.length) {
-        const response = await aiRequest(
-          [{ role: "user", content: courseBrief(draft) }],
-          "course_search",
-          request.signal,
-        );
-        if (!active()) return;
-        queries = validateSearchQueries(parseCourseJSON(response));
-        patch({ searchQueries: queries });
-      }
-      let research = refresh ? null : draft.research;
-      if (!research) {
-        research = await researchRequest(queries, request.signal);
-        if (!active()) return;
-        patch({ research });
-      }
-      patch({ phase: "interviewing" });
-      const response = await aiRequest(
-        [{ role: "user", content: courseBrief({ ...draft, research }) }],
-        "course_questions",
-        request.signal,
-      );
+      const { runCourseDiscovery, runValidatedGeneration } =
+        await import("./lib/course-agent");
+      const interview = await runCourseDiscovery({
+        queries: refresh ? [] : draft.searchQueries || [],
+        research: refresh ? null : draft.research,
+        signal: request.signal,
+        search: () =>
+          runValidatedGeneration({
+            request: modelRequest,
+            messages: [{ role: "user", content: courseBrief(draft) }],
+            kind: "course_search",
+            signal: request.signal,
+            repairLabel: "检索词",
+            validate: (response) =>
+              validateSearchQueries(parseCourseJSON(response)),
+          }),
+        lookup: (queries) => researchRequest(queries, request.signal),
+        onProgress: (update) => {
+          if (active())
+            patch(update.queries ? { searchQueries: update.queries } : update);
+        },
+        interview: (research) => {
+          if (active()) patch({ phase: "interviewing" });
+          const content = courseBrief({ ...draft, research });
+          return runValidatedGeneration({
+            signal: request.signal,
+            request: modelRequest,
+            messages: [{ role: "user", content }],
+            kind: "course_questions",
+            repairLabel: "需求问题",
+            validate: (response) =>
+              validateCourseQuestions(parseCourseJSON(response), research),
+          });
+        },
+      });
       if (!active()) return;
-      const interview = validateCourseQuestions(
-        parseCourseJSON(response),
-        research,
-      );
       patch({
         ...interview,
+        modeQuestionsStale: false,
         answers: {},
         ...(draft.plan
           ? { preferencesChanged: true }
@@ -521,6 +556,7 @@ function GenerationConversation({ draftId }) {
       !draft.questions && !draft.plan && draft.phase === "questions";
     if (
       !draft.interrupted &&
+      !draft.modeQuestionsStale &&
       (draft.phase === "research_pending" || legacy) &&
       available
     ) {
@@ -533,6 +569,8 @@ function GenerationConversation({ draftId }) {
     draft.interrupted,
     provider.configured,
     uploading,
+    !!modeError,
+    draft.modeQuestionsStale,
   ]);
   const planCourse = async (revision = "") => {
     if (!available || !canPlan) return;
@@ -544,18 +582,17 @@ function GenerationConversation({ draftId }) {
       : draft.messages;
     if (revision) patch({ messages });
     try {
-      const response = await aiRequest(
-        [
+      const plan = await generateCoursePlan({
+        request: modelRequest,
+        messages: [
           {
             role: "user",
             content: `${courseBrief({ ...draft, messages })}${draft.plan ? `\n已有蓝图：${JSON.stringify(draft.plan)}\n根据对话中的最新调整要求重新规划。` : ""}`,
           },
         ],
-        "course_plan",
-        request.signal,
-      );
+        signal: request.signal,
+      });
       if (controller.current !== request || request.signal.aborted) return;
-      const plan = validateCoursePlan(parseCourseJSON(response));
       patch({
         plan,
         phase: "review",
@@ -601,7 +638,7 @@ function GenerationConversation({ draftId }) {
           const expected = draft.plan.units[i];
           const target = { ...expected, lessons: [expected.lessons[j]] };
           return generateCourseLecture({
-            request: aiRequest,
+            request: modelRequest,
             expectedUnit: expected,
             expectedLesson: expected.lessons[j],
             signal: request.signal,
@@ -619,6 +656,7 @@ function GenerationConversation({ draftId }) {
       const id = `generated-${draftId}`;
       const course = {
         ...draft.plan,
+        ...learningContext(draft),
         id,
         units: completed,
         source: "AI 生成",
@@ -748,6 +786,52 @@ function GenerationConversation({ draftId }) {
           <div className="generation-user-message">
             {draft.messages[0]?.text || draft.topic}
           </div>
+          <section
+            className="generation-mode-context"
+            aria-label="课程学习模式"
+          >
+            <Tabs
+              value={modeContext.learningMode}
+              onValueChange={(learningMode) =>
+                changeModeContext({ learningMode })
+              }
+            >
+              <TabsList aria-label="课程学习模式">
+                <TabsTrigger value="self" disabled={busy || !!draft.courseId}>
+                  自学
+                </TabsTrigger>
+                <TabsTrigger value="school" disabled={busy || !!draft.courseId}>
+                  学校同步
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {modeContext.learningMode === "school" ? (
+              <SchoolLearningFields
+                value={draft.schoolContext}
+                disabled={busy || !!draft.courseId}
+                onChange={(schoolContext) =>
+                  changeModeContext({ schoolContext })
+                }
+              />
+            ) : (
+              <p>围绕你的基础和目标，规划适合自己的学习路线。</p>
+            )}
+            {modeError && <p role="status">{modeError}</p>}
+            {draft.modeQuestionsStale && !draft.courseId && (
+              <div className="generation-mode-refresh">
+                <p>
+                  学习模式已切换，重新确认需求后再规划，原蓝图和已生成内容会保留。
+                </p>
+                <Button
+                  variant="outline"
+                  disabled={!available || !!modeError}
+                  onClick={() => researchCourse(true)}
+                >
+                  按当前模式重新确认需求
+                </Button>
+              </div>
+            )}
+          </section>
           <motion.section
             className="generation-assistant-turn"
             initial={reducedMotion ? false : { opacity: 0, y: 6 }}
@@ -849,7 +933,9 @@ function GenerationConversation({ draftId }) {
                   index={index}
                   question={question}
                   value={draft.answers[question.key]}
-                  disabled={busy || !!draft.courseId}
+                  disabled={
+                    busy || !!draft.courseId || !!draft.modeQuestionsStale
+                  }
                   onChange={(value) => choose(question.key, value)}
                 />
               ))}
@@ -942,7 +1028,7 @@ function GenerationConversation({ draftId }) {
                   idleText="确认方向，生成蓝图"
                   loadingText="正在编排课程蓝图"
                   errorText="重试生成课程蓝图"
-                  disabled={!completeAnswers || !available}
+                  disabled={!canPlan || !available}
                   onClick={() => planCourse()}
                 />
                 {!completeAnswers && (
@@ -1276,6 +1362,7 @@ function GenerationConversation({ draftId }) {
               <small>
                 {busy ? "正在生成…" : "Enter 发送 · Shift + Enter 换行"}
               </small>
+              <ModelSelector disabled={busy || uploading} />
               {busy ? (
                 <IconButton icon={Square} label="停止生成" onClick={stop} />
               ) : (

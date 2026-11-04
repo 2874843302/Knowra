@@ -78,9 +78,23 @@ try {
       Math.abs(content.y + content.height / 2 - 500) < 2,
       "Composition centered vertically",
     );
-    assert(content.width <= 960, "Compact overall layout");
-    const preview = await showcase.boundingBox();
-    assert(preview.width <= 460, "Preview is no longer an oversized scene");
+    assert(content.width <= 1360, "Composition fits its desktop container");
+    assert.equal(
+      await stack.locator("canvas").count(),
+      0,
+      "Journey cards contain workflow content",
+    );
+    const field = page.locator(".identity-line-field");
+    const fieldBox = await field.boundingBox();
+    const stackBox = await stack.boundingBox();
+    assert(
+      fieldBox.width >= 260 && fieldBox.height >= 260,
+      "Independent animation is larger than the former 140px preview",
+    );
+    assert(
+      fieldBox.x >= stackBox.x + stackBox.width,
+      "Animation sits to the right of the workflow",
+    );
     const collapsed = await board.boundingBox();
     await page.waitForTimeout(600);
     assert(
@@ -93,6 +107,14 @@ try {
     await expect(stack).toHaveAttribute("aria-expanded", "true");
     await page.waitForTimeout(320);
     const expanded = await board.boundingBox();
+    assert(
+      sameGeometry(fieldBox, await field.boundingBox()),
+      "Unfolding cards never moves the animation",
+    );
+    assert(
+      expanded.x + expanded.width < fieldBox.x,
+      "Expanded workflow does not overlap the animation",
+    );
     assert(expanded.y > collapsed.y + 40, "Hover quickly unfolds the stack");
     assert(
       sameGeometry(form, await page.locator(".auth-form").boundingBox()),

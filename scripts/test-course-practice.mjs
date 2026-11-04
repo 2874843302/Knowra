@@ -94,7 +94,9 @@ test("invalid model response repairs internally, and provider receives a dedicat
   assert.equal(result.length, 1);
   assert.equal(calls.length, 2);
   assert(calls.every((c) => c.kind === "course_practice"));
-  assert.match(calls[1].messages.at(-1).content, /未通过校验/);
+  assert.match(calls[1].messages.at(-1).content, /校验失败/);
+  assert.match(calls[1].messages.at(-1).content, /patches/);
+  assert.equal(calls[1].messages.at(-2).role, "assistant");
 });
 
 test("aborted late response is discarded without retry", async () => {

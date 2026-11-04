@@ -8,6 +8,7 @@ import { BoardAnnotation } from "./components/board-annotation";
 import { WritingPencil } from "./components/writing-pencil";
 import { VectorLab } from "./components/vector-lab";
 import { TeachingDiagram } from "./components/teaching-diagram";
+import { visualWritingFields } from "./lib/visual-writing";
 
 const noAnnotations = [];
 const AnnotationContext = createContext(noAnnotations);
@@ -126,6 +127,18 @@ export const TeachingMarkdown = memo(function TeachingMarkdown({
   );
 });
 
+// Reserve the final line wrapping so drawing a card never moves finished ink.
+function VisualInk({ text, shown }) {
+  return (
+    <span className="visual-ink">
+      <span aria-hidden="true" className="visual-ink-reserve">
+        {text}
+      </span>
+      <span className="visual-ink-written">{shown}</span>
+    </span>
+  );
+}
+
 export const TeachingVisual = memo(function TeachingVisual({
   visual,
   progress,
@@ -152,52 +165,80 @@ export const TeachingVisual = memo(function TeachingVisual({
       />
     );
   const items = visual.items || visual.rows || [];
-  const retained = visual.type === "trace" ? previous?.rows?.length || 0 : 0;
-  const count = Math.min(
-    items.length,
-    retained + Math.ceil(progress * (items.length - retained)),
-  );
+  const fields = visualWritingFields(visual, progress, previous);
+  const ink = (text, key) => <VisualInk text={text} shown={fields[key]} />;
   if (!["bindings", "comparison", "trace"].includes(visual.type)) return null;
   return (
     <figure
       className={`teaching-visual visual-${visual.type}`}
       aria-label={visual.title}
+      data-visual-progress={progress.toFixed(3)}
     >
-      <figcaption>{visual.title}</figcaption>
-      {items.slice(0, count).map((item, i) =>
+      <figcaption>{ink(visual.title, "title")}</figcaption>
+      {items.map((item, i) =>
         visual.type === "bindings" ? (
-          <div className="binding-row" key={i}>
-            <code>{item.name}</code>
-            <ArrowRight size={22} aria-label="指向" />
-            <BoardAnnotation kind="box" className="binding-value">
-              <strong>{item.value}</strong>
-              <small>{item.type}</small>
-            </BoardAnnotation>
+          <div
+            className="binding-row"
+            key={i}
+            style={!fields[`${i}.name`] ? { visibility: "hidden" } : undefined}
+          >
+            <code>{ink(item.name, `${i}.name`)}</code>
+            <ArrowRight
+              size={22}
+              aria-label="指向"
+              style={
+                !fields[`${i}.value`] ? { visibility: "hidden" } : undefined
+              }
+            />
+            <span
+              style={
+                !fields[`${i}.value`] ? { visibility: "hidden" } : undefined
+              }
+            >
+              <BoardAnnotation kind="box" className="binding-value">
+                <strong>{ink(item.value, `${i}.value`)}</strong>
+                <small>{ink(item.type, `${i}.type`)}</small>
+              </BoardAnnotation>
+            </span>
           </div>
         ) : visual.type === "comparison" ? (
-          <div className="comparison-row" key={i}>
-            <small>{item.label}</small>
+          <div
+            className="comparison-row"
+            key={i}
+            style={!fields[`${i}.label`] ? { visibility: "hidden" } : undefined}
+          >
+            <small>{ink(item.label, `${i}.label`)}</small>
             <div>
-              <code>{item.expression}</code>
-              <ArrowRight size={17} aria-hidden="true" />
-              <strong>{item.result}</strong>
+              <code>{ink(item.expression, `${i}.expression`)}</code>
+              <ArrowRight
+                size={17}
+                aria-hidden="true"
+                style={
+                  !fields[`${i}.result`] ? { visibility: "hidden" } : undefined
+                }
+              />
+              <strong>{ink(item.result, `${i}.result`)}</strong>
             </div>
-            <small>{item.detail}</small>
+            <small>{ink(item.detail, `${i}.detail`)}</small>
           </div>
         ) : (
           <div
-            className={`trace-row ${i === count - 1 ? "is-latest" : ""}`}
+            className={`trace-row ${fields[`${i}.name`] && !fields[`${i + 1}.name`] ? "is-latest" : ""}`}
             key={item.name}
+            style={!fields[`${i}.name`] ? { visibility: "hidden" } : undefined}
           >
-            <code>{item.name}</code>
-            <span>{item.value}</span>
+            <code>{ink(item.name, `${i}.name`)}</code>
+            <span>{ink(item.value, `${i}.value`)}</span>
           </div>
         ),
       )}
-      {visual.output && progress >= 0.7 && (
-        <div className="trace-output">
+      {visual.output && (
+        <div
+          className="trace-output"
+          style={!fields.output ? { visibility: "hidden" } : undefined}
+        >
           <small>格式化输出</small>
-          <samp>{visual.output}</samp>
+          <samp>{ink(visual.output, "output")}</samp>
         </div>
       )}
       {visual.type === "trace" && (

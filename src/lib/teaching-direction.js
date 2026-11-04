@@ -4,6 +4,7 @@ import {
   narrationElapsedAtActive,
   narrationCueActiveTime,
 } from "./narration-timing.js";
+import { contentError } from "./generation-validation.js";
 
 // Shared by generation, AI editing and live teaching. Delivery cues refer to
 // literal narration, so presentation follows meaning rather than a second clock.
@@ -76,7 +77,8 @@ export function normalizeTeachingDirection(step) {
 
 export function validateTeachingDesign(teaching) {
   if (!teaching?.design)
-    throw new Error(
+    throw contentError(
+      "/design",
       "缺少 teaching.design：先明确本讲的具体问题、推理路径与呈现依据，再落实到 steps。",
     );
   validateTeachingDelivery(teaching.steps);
@@ -89,24 +91,26 @@ export function validateTeachingDesign(teaching) {
   };
   for (const form of teaching.design.representations)
     if (!teaching.steps.some(actual[form]))
-      throw new Error(
+      throw contentError(
+        "/steps",
         `教学设计宣称使用 ${form}，但 steps 中没有相应内容；请落实或选择真实使用的形式。`,
       );
   // Ignore formatting when detecting a narration pasted into the board.
   const plain = (v) => v.replace(/[\p{P}\p{S}\s]/gu, "");
   if (teaching.steps.some((s) => plain(s.board) === plain(s.narration)))
-    throw new Error(
+    throw contentError(
+      "/steps",
       "板书仍在照抄口语：请提炼关系或推理，narration 解释为什么与如何理解。",
     );
 }
 
 export function validateTeachingDelivery(steps) {
-  if (
-    steps.some(
-      (s) => !s.role || !s.delivery?.write || (s.visual && !s.delivery.visual),
-    )
-  )
-    throw new Error(
+  const index = steps.findIndex(
+    (s) => !s.role || !s.delivery?.write || (s.visual && !s.delivery.visual),
+  );
+  if (index >= 0)
+    throw contentError(
+      `/steps/${index}`,
       "每步需要 role 和 delivery.write；带图解的步骤需要 delivery.visual，锚点逐字引用 narration。",
     );
 }
@@ -132,7 +136,9 @@ export function writingProgress(step, elapsed) {
 }
 export function visualProgress(step, narrationProgress, boardProgress) {
   if (!step?.delivery?.visual)
-    return step?.visual?.type === "diagram" ? narrationProgress : boardProgress;
+    // Even a short board may accompany a long explanation. Illustrations follow
+    // speech, rather than finishing as soon as that short board has been written.
+    return narrationProgress;
   const start = narrationCueActiveTime(
     step.narration,
     step.narration.indexOf(step.delivery.visual),

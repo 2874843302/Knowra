@@ -1,4 +1,19 @@
 /* Illustrations sit on the board; they are not dashboard cards. */
+.visual-ink {
+  display: grid;
+  min-width: 0;
+}
+.visual-ink > span {
+  grid-area: 1 / 1;
+  white-space: inherit;
+}
+.visual-ink-reserve {
+  visibility: hidden;
+  user-select: none;
+}
+.visual-ink-written {
+  align-self: start;
+}
 .reference-classroom .teaching-diagram {
   width: min(100%, 640px);
   margin: 20px 0 24px;

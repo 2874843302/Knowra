@@ -66,3 +66,7 @@ requests==2.34.2
 sympy==1.14.0
 tqdm==4.70.1
 urllib3==2.8.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
+psycopg-pool==3.3.3
+tzdata==2026.6

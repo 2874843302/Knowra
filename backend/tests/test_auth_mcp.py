@@ -43,7 +43,7 @@ def test_real_login_cookie_logout_and_expiry(tmp_path):
             user = db.execute("SELECT * FROM users").fetchone()
             assert user["password_hash"] != credentials["password"]
             assert user["password_hash"].startswith("pbkdf2_sha256$600000$")
-            assert db.execute("SELECT token_hash FROM sessions").fetchone()[0] == digest(raw_cookie)
+            assert db.execute("SELECT token_hash FROM sessions").fetchone()["token_hash"] == digest(raw_cookie)
         assert client.post("/api/auth/register", json={**credentials, "name": "重复"}).status_code == 409
         assert client.post("/api/auth/logout").status_code == 200
         client.cookies.set(COOKIE, raw_cookie)
@@ -94,7 +94,7 @@ def test_mcp_protocol_scopes_revocation_expiry_and_account_ownership(client, wor
     token = fresh["token"]
     assert token not in client.get("/api/auth/tokens").text
     with client.app.state.database.connect() as db:
-        assert db.execute("SELECT token_hash FROM mcp_tokens").fetchone()[0] == digest(token)
+        assert db.execute("SELECT token_hash FROM mcp_tokens").fetchone()["token_hash"] == digest(token)
     assert client.post("/api/mcp/", json={}).status_code == 401
     init = rpc(client, token, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "fixture", "version": "1"}})
     assert init.status_code == 200
@@ -112,7 +112,7 @@ def test_mcp_protocol_scopes_revocation_expiry_and_account_ownership(client, wor
     assert client.get("/api/auth/tokens").json()["tokens"] == []
     assert client.post("/api/auth/login", json=client.test_credentials).status_code == 200
     with client.app.state.database.connect() as db:
-        db.execute("UPDATE mcp_tokens SET expires_at=0 WHERE id=?", (fresh["id"],))
+        db.execute("UPDATE mcp_tokens SET expires_at=0 WHERE id=%s", (fresh["id"],))
     assert rpc(client, token, "tools/list").status_code == 401
     fresh = client.post("/api/auth/tokens", json={"name": "To revoke"}).json()
     assert client.delete(f'/api/auth/tokens/{fresh["id"]}').status_code == 200
@@ -149,7 +149,7 @@ def test_restart_retains_checkpoint_without_replaying_generation(client):
         user = db.execute("SELECT * FROM users").fetchone()
         job_id = str(uuid4())
         checkpoint = {"completedUnits": [{"title": "已完成", "lessons": [{"id": "lesson-0-0"}]}]}
-        db.execute("INSERT INTO course_jobs VALUES (?,?,NULL,'running',?,?,'',NULL,'now','now')", (job_id, user["id"], json.dumps({"topic": "重启恢复", "depth": "deep"}), json.dumps(checkpoint)))
+        db.execute("INSERT INTO course_jobs VALUES (%s,%s,NULL,'running',%s,%s,'',NULL,'now','now')", (job_id, user["id"], json.dumps({"topic": "重启恢复", "depth": "deep"}), json.dumps(checkpoint)))
     service = CourseJobs(client.app, client.app.state.provider.settings)
     row = service.row(user, job_id)
     assert row["status"] == "interrupted"
@@ -161,7 +161,7 @@ def test_generation_resume_obeys_provider_cooldown(client):
     with client.app.state.database.connect() as db:
         user = db.execute("SELECT * FROM users").fetchone()
         job_id = str(uuid4())
-        db.execute("INSERT INTO course_jobs VALUES (?,?,NULL,'failed',?,?,'',NULL,'now','now')", (job_id, user["id"], json.dumps({"topic": "冷却", "depth": "deep"}), json.dumps({"retryNotBefore": int(time.time()) + 600})))
+        db.execute("INSERT INTO course_jobs VALUES (%s,%s,NULL,'failed',%s,%s,'',NULL,'now','now')", (job_id, user["id"], json.dumps({"topic": "冷却", "depth": "deep"}), json.dumps({"retryNotBefore": int(time.time()) + 600})))
     response = client.post(f"/api/course-jobs/{job_id}/resume")
     assert response.status_code == 429
     assert int(response.headers["retry-after"]) > 500
@@ -182,6 +182,134 @@ def wait_job(client, job_id, statuses):
             return value
         time.sleep(.05)
     pytest.fail("Course worker timed out")
+
+
+def lecture_reply(model_fixture, payload):
+    fixture = json.loads(json.dumps(model_fixture))
+    second = "Store 的使用" in payload.messages[0].content.split("只展开")[1]
+    fixture["units"][0]["lessons"] = [fixture["units"][0]["lessons"][int(second)]]
+    return {"content": json.dumps(fixture, ensure_ascii=False)}
+
+
+def test_remote_worker_runs_two_lectures_and_checkpoints_out_of_order(client, monkeypatch, model_fixture):
+    release_first = asyncio.Event()
+    active = peak = 0
+    async def complete(payload, **kwargs):
+        nonlocal active, peak
+        if payload.kind == "course_plan":
+            return {"content": json.dumps(model_fixture, ensure_ascii=False)}
+        active += 1
+        peak = max(peak, active)
+        try:
+            if "Store 的使用" not in payload.messages[0].content.split("只展开")[1]:
+                await asyncio.wait_for(release_first.wait(), 15)
+            return lecture_reply(model_fixture, payload)
+        finally:
+            active -= 1
+    monkeypatch.setattr(client.app.state.provider, "complete", complete)
+    monkeypatch.setattr(client.app.state.provider, "public", lambda: {"configured": True, "baseUrl": "https://example.com/v1", "model": "fixture"})
+    job_id = client.post("/api/course-jobs", json={"topic": "并行课程"}).json()["id"]
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        job = client.get(f"/api/course-jobs/{job_id}").json()
+        if job["completedLectures"] == 1:
+            break
+        time.sleep(.05)
+    assert job["status"] == "running" and job["completedLectures"] == 1
+    with client.app.state.database.connect() as db:
+        checkpoint = json.loads(db.execute("SELECT checkpoint FROM course_jobs WHERE id=%s", (job_id,)).fetchone()["checkpoint"])
+    assert checkpoint["pendingLectures"]["0:1"]["title"] == "Store 的使用"
+    assert not checkpoint["completedUnits"]
+    client.portal.call(release_first.set)
+    done = wait_job(client, job_id, {"completed", "failed"})
+    assert done["status"] == "completed", done["error"]
+    assert peak == 2
+    saved = client.get("/api/workspace").json()["state"]["customCourses"][0]
+    assert [lesson["title"] for lesson in saved["units"][0]["lessons"]] == ["认识 Store", "Store 的使用"]
+
+
+@pytest.mark.parametrize("base_url,model", [("http://127.0.0.1:8787/v1", "deepseek-web"), ("https://example.com/v1", "deepseek-web"), ("http://localhost:8001/v1", "local-model")])
+def test_native_and_local_worker_keep_serial_sessions(client, monkeypatch, model_fixture, base_url, model):
+    active = peak = 0
+    async def complete(payload, **kwargs):
+        nonlocal active, peak
+        if payload.kind == "course_plan":
+            return {"content": json.dumps(model_fixture, ensure_ascii=False)}
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(.05)
+            return lecture_reply(model_fixture, payload)
+        finally:
+            active -= 1
+    monkeypatch.setattr(client.app.state.provider, "complete", complete)
+    monkeypatch.setattr(client.app.state.provider, "public", lambda: {"configured": True, "baseUrl": base_url, "model": model})
+    job_id = client.post("/api/course-jobs", json={"topic": "串行课程"}).json()["id"]
+    done = wait_job(client, job_id, {"completed", "failed"})
+    assert done["status"] == "completed", done["error"]
+    assert peak == 1
+
+
+def test_parallel_failure_retains_other_lecture_and_provider_cooldown(client, monkeypatch, model_fixture):
+    second_started = asyncio.Event()
+    blocked = True
+    calls = []
+    async def complete(payload, **kwargs):
+        if payload.kind == "course_plan":
+            return {"content": json.dumps(model_fixture, ensure_ascii=False)}
+        second = "Store 的使用" in payload.messages[0].content.split("只展开")[1]
+        calls.append(int(second))
+        if second:
+            second_started.set()
+            await asyncio.sleep(.05)
+        elif blocked:
+            await asyncio.wait_for(second_started.wait(), 10)
+            raise HTTPException(429, "模型冷却", headers={"Retry-After": "60"})
+        return lecture_reply(model_fixture, payload)
+    monkeypatch.setattr(client.app.state.provider, "complete", complete)
+    monkeypatch.setattr(client.app.state.provider, "public", lambda: {"configured": True, "baseUrl": "https://example.com/v1", "model": "fixture"})
+    job_id = client.post("/api/course-jobs", json={"topic": "恢复课程"}).json()["id"]
+    failed = wait_job(client, job_id, {"failed", "completed"})
+    assert failed["status"] == "failed" and failed["completedLectures"] == 1
+    assert sorted(calls) == [0, 1]
+    assert client.post(f"/api/course-jobs/{job_id}/resume").status_code == 429
+    with client.app.state.database.connect() as db:
+        checkpoint = json.loads(db.execute("SELECT checkpoint FROM course_jobs WHERE id=%s", (job_id,)).fetchone()["checkpoint"])
+        assert checkpoint["pendingLectures"]["0:1"]["title"] == "Store 的使用"
+        checkpoint["retryNotBefore"] = 0
+        db.execute("UPDATE course_jobs SET checkpoint=%s WHERE id=%s", (json.dumps(checkpoint), job_id))
+    blocked = False
+    assert client.post(f"/api/course-jobs/{job_id}/resume").status_code == 200
+    done = wait_job(client, job_id, {"completed", "failed"})
+    assert done["status"] == "completed", done["error"]
+    assert calls.count(0) == 2 and calls.count(1) == 1
+
+
+def test_cancel_parallel_worker_cancels_both_model_requests(client, monkeypatch, model_fixture):
+    both_started = asyncio.Event()
+    never_release = asyncio.Event()
+    started = cancelled = 0
+    async def complete(payload, **kwargs):
+        nonlocal started, cancelled
+        if payload.kind == "course_plan":
+            return {"content": json.dumps(model_fixture, ensure_ascii=False)}
+        started += 1
+        if started == 2:
+            both_started.set()
+        try:
+            await never_release.wait()
+        except asyncio.CancelledError:
+            cancelled += 1
+            raise
+        return lecture_reply(model_fixture, payload)
+    monkeypatch.setattr(client.app.state.provider, "complete", complete)
+    monkeypatch.setattr(client.app.state.provider, "public", lambda: {"configured": True, "baseUrl": "https://example.com/v1", "model": "fixture"})
+    job_id = client.post("/api/course-jobs", json={"topic": "取消并行课程"}).json()["id"]
+    client.portal.call(asyncio.wait_for, both_started.wait(), 10)
+    response = client.post(f"/api/course-jobs/{job_id}/cancel")
+    assert response.json()["status"] == "cancelled"
+    assert started == cancelled == 2
+    assert client.get("/api/workspace").json()["state"]["customCourses"] == []
 
 
 def test_real_node_worker_validates_retries_preserves_progress_and_returns_learning_links(client, monkeypatch, model_fixture):
@@ -247,3 +375,57 @@ def test_cancel_worker_and_late_model_results_do_not_create_course(client, monke
     assert response.status_code == 200
     assert response.json()["status"] == "cancelled"
     assert client.get("/api/workspace").json()["state"]["customCourses"] == []
+
+
+def test_school_mode_contract_requires_reference_and_validates_fields(client):
+    for payload in [
+        {"topic": "导数", "learningMode": "school"},
+        {"topic": "导数", "learningMode": "unknown"},
+        {"topic": "导数", "learningMode": "school", "schoolContext": {"textbook": " "}},
+        {"topic": "导数", "learningMode": "school", "schoolContext": {"chapter": "章" * 1001}},
+    ]:
+        assert client.post("/api/course-jobs", json=payload).status_code == 422
+    with client.app.state.database.connect() as db:
+        assert db.execute("SELECT count(*) AS n FROM course_jobs").fetchone()["n"] == 0
+
+
+def test_mcp_school_mode_reaches_plan_lectures_and_saved_course(client, monkeypatch, model_fixture):
+    school = {"textbook": "学校状态管理讲义", "chapter": "第二章 Store", "schedule": "本周复习", "assessment": "重点解释跨组件数据流"}
+    calls = []
+    async def complete(payload, **kwargs):
+        calls.append(payload.kind)
+        content = payload.messages[0].content
+        assert "学校同步" in content
+        for text in school.values():
+            assert text in content
+        if payload.kind == "course_plan":
+            return {"content": json.dumps(model_fixture, ensure_ascii=False)}
+        is_second = "Store 的使用" in content.split("只展开")[1]
+        fixture = json.loads(json.dumps(model_fixture))
+        fixture["units"][0]["lessons"] = [fixture["units"][0]["lessons"][1 if is_second else 0]]
+        return {"content": json.dumps(fixture, ensure_ascii=False)}
+    monkeypatch.setattr(client.app.state.provider, "complete", complete)
+    monkeypatch.setattr(client.app.state.provider, "public", lambda: {"configured": True})
+    token = client.post("/api/auth/tokens", json={"name": "School fixture"}).json()["token"]
+    result = tool(client, token, "create_course", {"topic": "状态管理", "learningMode": "school", "schoolContext": school})
+    assert not result.get("isError"), result
+    done = wait_job(client, result["structuredContent"]["id"], {"completed", "failed"})
+    assert done["status"] == "completed", done["error"]
+    assert calls == ["course_plan", "course_unit", "course_unit"]
+    course = client.get("/api/workspace").json()["state"]["customCourses"][0]
+    assert course["learningMode"] == "school"
+    assert course["schoolContext"] == school
+
+
+def test_old_idempotency_payload_without_mode_is_still_self_study(client, monkeypatch):
+    from app.services.course_jobs import CourseInput
+    request_id, job_id = str(uuid4()), str(uuid4())
+    old = CourseInput(topic="旧请求", request_id=request_id).model_dump(mode="json")
+    old.pop("learningMode")
+    old.pop("schoolContext")
+    with client.app.state.database.connect() as db:
+        user = db.execute("SELECT * FROM users").fetchone()
+        db.execute("INSERT INTO course_jobs VALUES (%s,%s,%s,'completed',%s,'{}','',NULL,'now','now')", (job_id, user["id"], request_id, json.dumps(old)))
+    response = client.post("/api/course-jobs", json={"topic": "旧请求", "request_id": request_id})
+    assert response.status_code == 202
+    assert response.json()["id"] == job_id

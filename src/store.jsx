@@ -2,11 +2,11 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { toast as sonnerToast } from "sonner";
-import { Button } from "./design/primitives";
 import { catalog, initialState } from "./data";
 import {
   BASE_KEY,
@@ -15,6 +15,8 @@ import {
   workspaceRequest as requestWorkspace,
 } from "./persistence";
 import { useAuth } from "./auth";
+import { WorkspaceLoading } from "./components/workspace-loading";
+import { applyTheme } from "./lib/appearance-themes";
 
 const Store = createContext(null);
 export const STORAGE_KEY = "knowra-workspace-v1";
@@ -37,6 +39,7 @@ export function StoreProvider({ children }) {
     return { ...initialState(), name: user.name };
   });
   const [storageError, setStorageError] = useState(false);
+  useLayoutEffect(() => { applyTheme(state.appearance?.theme); }, [state.appearance?.theme]);
   const [sync, setSync] = useState({ status: "loading" });
   const [ready, setReady] = useState(false);
   const stateRef = useRef(state);
@@ -160,14 +163,30 @@ export function StoreProvider({ children }) {
     }
   }, [state]);
   const notify = (message) => sonnerToast(message);
-  const refreshProvider = async () => {
+  const refreshProvider = async (value) => {
     try {
+      if (value) {
+        setProvider({ ...value, loading: false });
+        return value;
+      }
       const r = await fetch("/api/provider");
       if (!r.ok) throw new Error();
-      setProvider({ ...(await r.json()), loading: false });
+      const data = await r.json();
+      setProvider({ ...data, loading: false });
+      return data;
     } catch {
       setProvider({ configured: false, loading: false, unavailable: true });
     }
+  };
+  const selectProvider = async (id) => {
+    const r = await fetch("/api/provider/active", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || "切换模型失败，请重试。");
+    return refreshProvider(data);
   };
   useEffect(() => {
     refreshProvider();
@@ -219,6 +238,7 @@ export function StoreProvider({ children }) {
         retrySync: () => (server.current ? flushRef.current() : initialize()),
         provider,
         refreshProvider,
+        selectProvider,
         create,
         setCreate,
         searchOpen,
@@ -231,15 +251,11 @@ export function StoreProvider({ children }) {
       {ready ? (
         children
       ) : (
-        <div className="workspace-loading">
-          <h2>知序 Knowra</h2>
-          <p>{sync.status === "error" ? sync.error : "正在打开学习空间…"}</p>
-          {sync.status === "error" && (
-            <Button variant="primary" onClick={initialize}>
-              重新连接
-            </Button>
-          )}
-        </div>
+        <WorkspaceLoading
+          stage="workspace"
+          error={sync.status === "error" ? sync.error : undefined}
+          onRetry={initialize}
+        />
       )}
     </Store.Provider>
   );
@@ -258,6 +274,7 @@ export async function aiRequest(
   kind = "chat",
   signal,
   conversationId,
+  providerId,
 ) {
   const r = await fetch("/api/ai", {
     method: "POST",
@@ -266,6 +283,7 @@ export async function aiRequest(
       messages,
       kind,
       ...(conversationId ? { conversation_id: conversationId } : {}),
+      ...(providerId ? { provider_id: providerId } : {}),
     }),
     signal,
   });

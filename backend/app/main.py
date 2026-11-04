@@ -19,6 +19,8 @@ from app.api.course_job_routes import router as jobs_router
 from app.api.mcp_server import create_mcp
 from app.api.tts_routes import router as tts_router
 from app.services.tts import LocalTTS
+from app.services.asr import LocalASR
+from app.api.asr_routes import router as asr_router
 
 
 def create_app(settings=None):
@@ -34,12 +36,14 @@ def create_app(settings=None):
             finally:
                 await app.state.jobs.close()
                 await asyncio.to_thread(app.state.tts.close)
+                await asyncio.to_thread(app.state.database.close)
 
     app = FastAPI(title="Knowra Learning API", version="2.1.0", lifespan=lifespan)
-    app.state.database = Database(config.knowra_data_dir)
+    app.state.database = Database(config)
     app.state.provider = Provider(config)
     app.state.auth = Auth(app.state.database)
     app.state.tts = LocalTTS(config)
+    app.state.asr = LocalASR(config)
     app.state.jobs = CourseJobs(app, config)
     app.state.mcp, mcp_app = create_mcp(app, config)
 
@@ -90,6 +94,7 @@ def create_app(settings=None):
     app.include_router(auth_router)
     app.include_router(jobs_router)
     app.include_router(tts_router)
+    app.include_router(asr_router)
     app.mount("/api/mcp", mcp_app)
     dist = ROOT / "dist"
     if (dist / "assets").exists():

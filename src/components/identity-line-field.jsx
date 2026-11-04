@@ -27,7 +27,9 @@ export function IdentityLineField({ enabled, suspended }) {
     <div
       ref={host}
       className="identity-line-field"
-      onClick={(event) => event.stopPropagation()}
+      tabIndex={0}
+      role="img"
+      aria-label="由流动线条构成的知序书本标志"
     >
       <canvas ref={canvas} aria-hidden="true" />
       {!supported && (

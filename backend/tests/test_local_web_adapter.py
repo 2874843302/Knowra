@@ -1,10 +1,20 @@
 import json
+from datetime import date
 from uuid import uuid4
 
 import httpx
 import pytest
 
 from app.services.provider import SYSTEMS, uses_local_web_adapter
+
+
+def test_login_pause_provides_deepseek_login_guidance_without_knowra_logout():
+    from app.services.provider import local_proxy_error
+    for code in ['login_required', 'safety_paused']:
+        error = local_proxy_error(httpx.Response(503, json={'error': {'code': code, 'pause_reason': 'login_required'}}))
+        assert error.status_code == 503
+        assert 'https://chat.deepseek.com/sign_in' in error.detail
+        assert '手动重新提交' in error.detail
 
 
 @pytest.mark.parametrize("kind", list(SYSTEMS))
@@ -19,7 +29,10 @@ def test_local_web_adapter_sends_only_supported_fields_and_waits_for_reasoning(c
         body = json.loads(request.content)
         requests.append(body)
         assert set(body) == {"model", "messages"}
-        assert body["messages"][0] == {"role": "system", "content": SYSTEMS[kind]}
+        expected_system = SYSTEMS[kind]
+        if kind == "chat_agent":
+            expected_system += f" 当前日期：{date.today().isoformat()}。不要把旧版本或过期信息当作最新事实。"
+        assert body["messages"][0] == {"role": "system", "content": expected_system}
         assert request.url.path == "/v1/chat/completions"
         return httpx.Response(200, json={"choices": [{"message": {
             "content": "adapter fixture answer", "reasoning_content": "separate reasoning",
@@ -46,11 +59,32 @@ def test_local_web_adapter_sends_only_supported_fields_and_waits_for_reasoning(c
     ("http://[::1]:8787/v1", "deepseek-web-thinking-search", True),
     ("https://api.deepseek.com/v1", "deepseek-chat", False),
     ("https://example.com/v1", "deepseek-web", False),
-    ("http://127.0.0.1:8787/v1", "another-model", False),
+    ("http://127.0.0.1:8787/v1", "another-model", True),
+    ("http://127.0.0.1:8787/v1", "", True),
+    ("http://127.0.0.1:11434/v1", "another-model", False),
     ("http://127.0.0.1:8787/v1/chat/completions", "deepseek-web", False),
 ])
 def test_local_web_profile_does_not_change_other_provider_contracts(base_url, model, expected):
     assert uses_local_web_adapter({"baseUrl": base_url, "model": model}) is expected
+
+
+def test_local_proxy_unavailable_has_actionable_error_without_replay(client, monkeypatch):
+    client.put("/api/provider", json={
+        "baseUrl": "http://127.0.0.1:8787/v1", "model": "deepseek-web", "apiKey": "fixture-only",
+    })
+    attempts = []
+
+    def handler(request):
+        attempts.append(request)
+        raise httpx.ConnectError("fixture connection refused", request=request)
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr("app.services.provider.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    response = client.post("/api/ai", json={"kind": "chat", "messages": [{"role": "user", "content": "fixture"}]})
+    assert response.status_code == 502
+    assert "本地 DeepSeek 代理" in response.json()["error"]
+    assert "切换到可用模型" in response.json()["error"]
+    assert len(attempts) == 1
 
 
 def test_local_web_errors_do_not_trigger_json_fallback_or_automatic_replay(client, monkeypatch):
@@ -72,6 +106,7 @@ def test_local_web_errors_do_not_trigger_json_fallback_or_automatic_replay(clien
 
 
 @pytest.mark.parametrize("status,code,expected,retry", [
+    (503, "login_required", "sign_in", ""),
     (429, "hourly_budget_exhausted", "一小时", "65"),
     (429, "daily_budget_exhausted", "24 小时", "3600"),
     (429, "busy", "另一个请求", ""),
@@ -212,6 +247,23 @@ def test_course_session_extension_only_applies_to_local_lecture_generation(clien
     monkeypatch.setattr("app.services.provider.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
     assert client.post("/api/ai", json={"kind": kind, "conversation_id": str(uuid4()), "messages": [{"role": "user", "content": "fixture"}]}).status_code == 200
     assert "session_id" not in captured[0]
+
+
+@pytest.mark.parametrize("extra", [{}, {"model": "", "apiKey": ""}, {"model": "anything", "apiKey": "anything"}])
+def test_local_proxy_only_requires_its_address(client, monkeypatch, extra):
+    response = client.put("/api/provider", json={"baseUrl": "http://127.0.0.1:8787/v1", **extra})
+    assert response.status_code == 200 and response.json()["configured"] is True
+    captured = []
+
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "fixture answer"}, "finish_reason": "stop"}]})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr("app.services.provider.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+    response = client.post("/api/ai", json={"kind": "chat", "messages": [{"role": "user", "content": "fixture"}]})
+    assert response.status_code == 200 and response.json() == {"content": "fixture answer"}
+    assert set(captured[0]) == {"model", "messages"}
 
 
 def test_course_session_id_must_be_a_valid_uuid(client):

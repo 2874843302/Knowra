@@ -7,8 +7,21 @@ import { InlineStatus } from "./components/ui/inline-status";
 import { LearningSketch } from "./components/learning-sketch";
 import { ComposerHeading } from "./components/composer-heading";
 import { AssistantCourseContext } from "./components/assistant-course-context";
+import { AssistantToolCalls } from "./components/assistant-tool-calls";
+import { Chat, ChatHeader, ChatMessages, ChatMessage, ChatComposer } from "./components/ui/chat";
+import { AIResponse } from "./components/ui/ai-response";
+import { VoiceInput } from "./components/voice-input";
+import { appendVoiceText } from "./lib/voice-input";
+import { runAssistantAgent } from "./lib/assistant-agent";
+import { researchRequest } from "./lib/course-generation";
+import { SchoolLearningFields } from "./components/school-learning-fields";
+import { learningModeError } from "./lib/learning-mode";
+import { usesAddressOnlyProxy } from "./lib/local-web-provider";
 import { courseHelpContext } from "./lib/course-help";
 import { AccountSettings, McpSettings } from "./components/account-settings";
+import { AppearanceSettings } from "./components/appearance-settings";
+import { ModelSettings } from "./components/model-settings";
+import { ModelSelector } from "./components/model-selector";
 import { SpotlightSurface } from "./components/ui/spotlight-surface";
 import { PasswordInput } from "./design/primitives";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -31,6 +44,7 @@ import {
   FileText,
   Flame,
   GraduationCap,
+  Globe,
   History,
   LayoutGrid,
   List,
@@ -39,6 +53,7 @@ import {
   MessageSquare,
   MoreHorizontal,
   Paperclip,
+  Palette,
   Plus,
   RotateCcw,
   Save,
@@ -151,6 +166,7 @@ export function Composer({ mode, setMode }) {
   const { provider, setCreate, state, setState, notify, activity } = useStore();
   const [topic, setTopic] = useState("");
   const [school, setSchool] = useState(false);
+  const [schoolContext, setSchoolContext] = useState({});
   const [files, setFiles] = useState([]);
   const [startersOpen, setStartersOpen] = useState(false);
   const navigate = useNavigate();
@@ -159,8 +175,18 @@ export function Composer({ mode, setMode }) {
       notify("写下一个想学习的主题");
       return;
     }
-    if (mode === "course") setCreate({ topic, files });
-    else {
+    if (mode === "course") {
+      const learningMode = school ? "school" : "self";
+      const error = learningModeError(
+        { learningMode, schoolContext },
+        files.length > 0,
+      );
+      if (error) {
+        notify(error);
+        return;
+      }
+      setCreate({ topic, files, learningMode, schoolContext });
+    } else {
       const id = crypto.randomUUID();
       setState((s) => ({
         ...s,
@@ -171,6 +197,7 @@ export function Composer({ mode, setMode }) {
             messages: [],
             draft: topic,
             files,
+            providerId: provider.activeId,
             date: new Date().toISOString(),
           },
           ...s.conversations,
@@ -267,15 +294,7 @@ export function Composer({ mode, setMode }) {
             )}
           </div>
           <div>
-            <Link to="/settings#ai" className="composer-model">
-              <span className="tiny-dot" />
-              {provider.configured
-                ? provider.model
-                : mode === "course"
-                  ? "课程模板"
-                  : "连接 AI 模型"}
-              <ChevronDown size={13} />
-            </Link>
+            <ModelSelector className="composer-model" />
             <Button
               variant="default"
               size="icon-sm"
@@ -288,10 +307,10 @@ export function Composer({ mode, setMode }) {
           </div>
         </div>
         <DisclosureContent open={school && mode === "course"}>
-          <div className="school-note">
-            <GraduationCap size={15} />
-            上传课程大纲或课件，按学校课程整理学习内容。
-          </div>
+          <SchoolLearningFields
+            value={schoolContext}
+            onChange={setSchoolContext}
+          />
         </DisclosureContent>
       </SpotlightSurface>
       <div className="composer-import">
@@ -829,38 +848,19 @@ function SettingsPanel({ value, active, children }) {
 export function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const tab = ["ai", "mcp", "data"].includes(location.hash.slice(1))
+  const tab = ["appearance", "ai", "mcp", "data"].includes(location.hash.slice(1))
     ? location.hash.slice(1)
     : "account";
-  const {
-    state,
-    setState,
-    sync,
-    retrySync,
-    provider,
-    refreshProvider,
-    notify,
-  } = useStore();
+  const { state, setState, sync, retrySync, notify } = useStore();
   const [name, setName] = useState(state.name);
   const [goal, setGoal] = useState(state.dailyGoal);
   const [profileSave, setProfileSave] = useState("idle");
-  const [baseUrl, setBase] = useState(provider.baseUrl || "");
-  const [model, setModel] = useState(provider.model || "");
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [connectionSaved, setConnectionSaved] = useState(false);
   const [backupStatus, setBackupStatus] = useState(null);
   const [reset, setReset] = useState(false);
   const input = useRef(null);
   const reducedMotion = useReducedMotion();
   const profileDirty = name.trim() !== state.name || goal !== state.dailyGoal;
   const profileBusy = profileSave === "queued" || profileSave === "saving";
-  const providerDirty =
-    !provider.configured ||
-    !!key ||
-    baseUrl.trim() !== (provider.baseUrl || "") ||
-    model.trim() !== (provider.model || "");
   useEffect(() => {
     if (profileSave === "queued" && sync.status === "saving")
       setProfileSave("saving");
@@ -868,46 +868,12 @@ export function SettingsPage() {
       setProfileSave("saved");
     if (profileBusy && sync.status === "error") setProfileSave("error");
   }, [profileSave, sync.status]);
-  useEffect(() => {
-    if (!provider.loading) {
-      setBase(provider.baseUrl || "");
-      setModel(provider.model || "");
-    }
-  }, [provider.loading]);
-  const saveProvider = async () => {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    setConnectionSaved(false);
-    try {
-      if (!baseUrl || !model || (!key && !provider.configured))
-        throw new Error("请填写接口地址、模型名称和 API 密钥。");
-      const r = await fetch("/api/provider", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          baseUrl: baseUrl.trim(),
-          model: model.trim(),
-          apiKey: key,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "连接配置未能保存，请重试。");
-      setKey("");
-      await refreshProvider();
-      setConnectionSaved(true);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <main className="page settings-page">
       <PageHeader
         eyebrow="工作区设置"
         title="设置与偏好"
-        description="管理账号、Agent 连接、AI 模型与学习数据。"
+        description="管理账号、界面风格、Agent 连接、AI 模型与学习数据。"
       />
       <Tabs
         className="settings-tabs"
@@ -931,6 +897,10 @@ export function SettingsPage() {
           <TabsTrigger value="ai">
             <Sparkles />
             AI 模型
+          </TabsTrigger>
+          <TabsTrigger value="appearance">
+            <Palette />
+            外观风格
           </TabsTrigger>
           <TabsTrigger value="mcp">
             <Plug />
@@ -1057,90 +1027,10 @@ export function SettingsPage() {
           </section>
         </SettingsPanel>
         <SettingsPanel value="ai" active={tab}>
-          <section className="settings-section" id="ai">
-            <div>
-              <h2>AI 模型</h2>
-              <p>{provider.configured ? "已配置对话接口" : "尚未连接模型"}</p>
-              <Badge color={provider.configured ? "green" : ""}>
-                {provider.configured ? provider.model : "未配置"}
-              </Badge>
-            </div>
-            <form
-              className="settings-fields"
-              onChange={() => {
-                setConnectionSaved(false);
-                setError("");
-              }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                saveProvider();
-              }}
-            >
-              <Field
-                label="接口地址"
-                htmlFor="ai-base-url"
-                required
-                hint="兼容 Chat Completions 的基础地址"
-              >
-                <Input
-                  id="ai-base-url"
-                  type="url"
-                  required
-                  value={baseUrl}
-                  onChange={(e) => setBase(e.target.value)}
-                  placeholder="https://你的服务地址/v1"
-                />
-              </Field>
-              <Field label="模型名称" htmlFor="ai-model" required>
-                <Input
-                  id="ai-model"
-                  required
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="输入服务商提供的模型 ID"
-                />
-              </Field>
-              <Field label="API 密钥" htmlFor="ai-key">
-                <PasswordInput
-                  id="ai-key"
-                  autoComplete="new-password"
-                  value={key}
-                  onChange={(e) => setKey(e.target.value)}
-                  placeholder={
-                    provider.configured
-                      ? "已保存，留空保留当前密钥"
-                      : "输入 API 密钥"
-                  }
-                />
-              </Field>
-              <div className="settings-actions">
-                <Button
-                  variant="primary"
-                  type="submit"
-                  icon={connectionSaved ? Check : Save}
-                  loading={busy}
-                  disabled={busy || !providerDirty}
-                >
-                  保存连接
-                </Button>
-                <InlineStatus
-                  tone={
-                    busy
-                      ? "busy"
-                      : error
-                        ? "error"
-                        : connectionSaved
-                          ? "success"
-                          : "neutral"
-                  }
-                >
-                  {busy
-                    ? "正在保存连接…"
-                    : error || (connectionSaved ? "连接配置已保存" : "")}
-                </InlineStatus>
-              </div>
-            </form>
-          </section>
+          <ModelSettings />
+        </SettingsPanel>
+        <SettingsPanel value="appearance" active={tab}>
+          <AppearanceSettings />
         </SettingsPanel>
         <SettingsPanel value="mcp" active={tab}>
           <McpSettings />
@@ -1739,27 +1629,44 @@ export function FeedPage() {
   );
 }
 
-const assistantMarkdownComponents = {
-  table: ({ node, ...props }) => (
-    <div
-      className="assistant-table-wrap"
-      role="region"
-      aria-label="回答中的表格"
-      tabIndex={0}
-    >
-      <table {...props} />
-    </div>
-  ),
-};
-
 export function AssistantPage() {
   const { id } = useParams();
-  const { state, setState, courses, provider, notify } = useStore();
+  const { state, setState, courses, provider } = useStore();
   const navigate = useNavigate();
   const [pendingId, setPendingId] = useState(null);
   const conversation = state.conversations.find(
     (c) => c.id === (id || pendingId),
   );
+  const [draftProviderId, setDraftProviderId] = useState(null);
+  const [draftWebSearch, setDraftWebSearch] = useState(true);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const webSearch = conversation?.webSearch ?? draftWebSearch;
+  const changeWebSearch = () => {
+    setDraftWebSearch(!webSearch);
+    if (conversation)
+      setState((s) => ({
+        ...s,
+        conversations: s.conversations.map((c) =>
+          c.id === conversation.id ? { ...c, webSearch: !webSearch } : c,
+        ),
+      }));
+  };
+  const selectedProvider =
+    provider.profiles?.find(
+      (p) =>
+        p.id ===
+        (conversation?.providerId || draftProviderId || provider.activeId),
+    ) || provider;
+  const changeModel = (providerId) => {
+    setDraftProviderId(providerId);
+    if (conversation)
+      setState((s) => ({
+        ...s,
+        conversations: s.conversations.map((c) =>
+          c.id === conversation.id ? { ...c, providerId } : c,
+        ),
+      }));
+  };
   const courseContext = conversation?.courseContext;
   const contextCourse = courses.find(
     (course) => course.id === courseContext?.courseId,
@@ -1782,33 +1689,26 @@ export function AssistantPage() {
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [agentStage, setAgentStage] = useState("正在思考…");
+  const activeTurn = useRef(null);
   const controller = useRef(null);
-  const messagesViewport = useRef(null);
   const input = useRef(null);
-  const reducedMotion = useReducedMotion();
   useEffect(() => {
+    const openingCreatedConversation = id && id === pendingId;
     setPendingId(null);
-    setText(conversation?.draft || "");
-    setFiles(conversation?.files || []);
+    setDraftProviderId(null);
+    setDraftWebSearch(true);
+    if (!openingCreatedConversation) {
+      setText(conversation?.draft || "");
+      setFiles(conversation?.files || []);
+    }
     setError("");
     return () => controller.current?.abort();
   }, [id]);
-  useEffect(() => {
-    const viewport = messagesViewport.current;
-    viewport?.scrollTo({
-      top: viewport.scrollHeight,
-      behavior: reducedMotion ? "instant" : "smooth",
-    });
-  }, [conversation?.messages.length, busy]);
-  useEffect(() => {
-    if (!input.current) return;
-    input.current.style.height = "auto";
-    input.current.style.height = `${Math.min(input.current.scrollHeight, 180)}px`;
-  }, [text]);
   const send = async (e) => {
     e?.preventDefault();
-    if (busy || !text.trim()) return;
-    if (!provider.configured) {
+    if (busy || voiceBusy || !text.trim()) return;
+    if (!selectedProvider.configured) {
       setError("连接 AI 模型后即可开始对话。");
       return;
     }
@@ -1824,10 +1724,14 @@ export function AssistantPage() {
     const cid = id || crypto.randomUUID();
     if (!id) setPendingId(cid);
     const userText = text.trim();
+    const turnId = crypto.randomUUID();
+    activeTurn.current = turnId;
+    let toolCalls = [];
     const messages = [
       ...(conversation?.messages || []),
       {
         role: "user",
+        id: turnId,
         content: userText,
         ...(contextCourse
           ? { courseScope: `${contextCourse.title} · ${scopeLabel}` }
@@ -1837,16 +1741,28 @@ export function AssistantPage() {
     setText("");
     setBusy(true);
     setError("");
+    setAgentStage("正在思考…");
     controller.current = new AbortController();
     setState((s) => ({
       ...s,
       conversations: id
         ? s.conversations.map((c) =>
-            c.id === id ? { ...c, messages, draft: "", files } : c,
+            c.id === id
+              ? {
+                  ...c,
+                  messages,
+                  draft: "",
+                  files,
+                  providerId: selectedProvider.id,
+                  webSearch,
+                }
+              : c,
           )
         : [
             {
               id: cid,
+              providerId: selectedProvider.id,
+              webSearch,
               title: userText.slice(0, 50),
               date: new Date().toISOString(),
               files,
@@ -1856,8 +1772,8 @@ export function AssistantPage() {
           ],
     }));
     try {
-      const content = await aiRequest(
-        [
+      const result = await runAssistantAgent({
+        messages: [
           ...(contextCourse
             ? [
                 {
@@ -1886,14 +1802,47 @@ export function AssistantPage() {
                 },
           ),
         ],
-        "chat",
-        controller.current.signal,
-      );
+        request: (messages, kind, signal) =>
+          aiRequest(messages, kind, signal, undefined, selectedProvider.id),
+        search: (queries, signal) =>
+          researchRequest(queries, signal, "/api/web-search"),
+        signal: controller.current.signal,
+        webSearch,
+        onStage: setAgentStage,
+        onToolCalls: (calls) => {
+          toolCalls = calls;
+          setState((s) => ({
+            ...s,
+            conversations: s.conversations.map((c) =>
+              c.id === cid
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === turnId ? { ...m, toolCalls: calls } : m,
+                    ),
+                  }
+                : c,
+            ),
+          }));
+        },
+      });
       setState((s) => ({
         ...s,
         conversations: s.conversations.map((c) =>
           c.id === cid
-            ? { ...c, messages: [...messages, { role: "assistant", content }] }
+            ? {
+                ...c,
+                messages: [
+                  ...c.messages,
+                  {
+                    id: crypto.randomUUID(),
+                    role: "assistant",
+                    content: result.content,
+                    sources: result.sources,
+                    modelName: selectedProvider.name || selectedProvider.model,
+                  },
+                ],
+              }
             : c,
         ),
       }));
@@ -1905,7 +1854,13 @@ export function AssistantPage() {
           ...s,
           conversations: s.conversations.map((c) =>
             c.id === cid
-              ? { ...c, messages: messages.slice(0, -1), draft: userText }
+              ? {
+                  ...c,
+                  messages: toolCalls.length
+                    ? c.messages
+                    : messages.slice(0, -1),
+                  draft: userText,
+                }
               : c,
           ),
         }));
@@ -1916,82 +1871,87 @@ export function AssistantPage() {
     }
   };
   return (
-    <main className="page assistant-page" aria-label="即时协助">
-      <div
+    <Chat
+      as="main"
+      className="page assistant-page"
+      aria-label="即时协助"
+      messages={conversation?.messages || []}
+      isGenerating={busy}
+    >
+      <ChatHeader
+        title={conversation?.title || "即时协助"}
+        modelName={selectedProvider.name || selectedProvider.model}
+      >
+        {state.conversations.length > 0 && (
+          <Select
+            value={conversation?.id || ""}
+            onValueChange={(value) => navigate(`/assistant/${value}`)}
+            disabled={busy}
+          >
+            <SelectTrigger className="easy-chat-history" aria-label="历史对话">
+              <SelectValue placeholder="历史对话" />
+            </SelectTrigger>
+            <SelectContent>
+              {state.conversations.map((thread) => (
+                <SelectItem key={thread.id} value={thread.id}>
+                  {thread.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </ChatHeader>
+      <ChatMessages
+        key={conversation?.id || "new"}
         className="assistant-messages"
-        ref={messagesViewport}
-        role="region"
-        aria-label="对话记录"
-        tabIndex={0}
       >
         {conversation?.messages.length ? (
           conversation.messages.map((m, i) => (
-            <motion.article
-              key={i}
-              className={`chat-message ${m.role}`}
-              initial={reducedMotion ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={motionTransitions.content}
-            >
-              <span className="message-avatar" aria-hidden="true">
-                {m.role === "user" ? (
-                  state.name.slice(0, 1)
-                ) : (
-                  <Sparkles size={16} />
-                )}
-              </span>
-              <div className="message-body">
-                <small>{m.role === "user" ? state.name : "知序导师"}</small>
-                {m.role === "user" ? (
-                  <div>
-                    {m.courseScope && (
-                      <small className="assistant-message-scope">
-                        {m.courseScope}
-                      </small>
-                    )}
-                    <p className="user-message-text">{m.content}</p>
-                  </div>
-                ) : (
-                  <div className="markdown">
-                    <Markdown
-                      remarkPlugins={[remarkGfm]}
-                      components={assistantMarkdownComponents}
-                    >
-                      {m.content}
-                    </Markdown>
-                  </div>
-                )}
-                {m.role === "assistant" && (
-                  <div className="assistant-message-actions">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={Copy}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(m.content);
-                          notify("回答已复制");
-                        } catch {
-                          notify("浏览器未允许复制，请选择回答内容后复制");
-                        }
-                      }}
-                    >
-                      复制回答
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={ArrowDownToLine}
-                      onClick={() =>
-                        download(`学习笔记-${localDate()}.md`, m.content)
-                      }
-                    >
-                      导出笔记
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </motion.article>
+            <React.Fragment key={m.id || i}>
+              {m.role === "user" ? (
+                <ChatMessage
+                  author={state.name}
+                  avatar={state.name.slice(0, 1)}
+                  scope={m.courseScope}
+                >
+                  {m.content}
+                </ChatMessage>
+              ) : (
+                <AIResponse
+                  className="chat-message assistant"
+                  content={m.content}
+                  sources={m.sources}
+                  modelName={m.modelName}
+                  feedback={m.feedback}
+                  onFeedback={(feedback) =>
+                    setState((s) => ({
+                      ...s,
+                      conversations: s.conversations.map((c) =>
+                        c.id === conversation.id
+                          ? {
+                              ...c,
+                              messages: c.messages.map((entry, index) =>
+                                index === i ? { ...entry, feedback } : entry,
+                              ),
+                            }
+                          : c,
+                      ),
+                    }))
+                  }
+                  onExport={(content) =>
+                    download(`学习笔记-${localDate()}.md`, content)
+                  }
+                />
+              )}
+              {m.role === "user" && m.toolCalls?.length > 0 && (
+                <div className="assistant-tool-turn">
+                  <AssistantToolCalls
+                    calls={m.toolCalls}
+                    active={busy && m.id === activeTurn.current}
+                  />
+                </div>
+              )}
+            </React.Fragment>
           ))
         ) : (
           <div className="assistant-empty">
@@ -2044,69 +2004,66 @@ export function AssistantPage() {
           </div>
         )}
         {busy && (
-          <div className="thinking" role="status" aria-live="polite">
-            <span className="spinner" />
-            正在思考…
-          </div>
+          <AIResponse
+            status="generating"
+            statusLabel={agentStage}
+            modelName={selectedProvider.name || selectedProvider.model}
+          />
         )}
-      </div>
+      </ChatMessages>
       <div className="assistant-compose-wrap">
         {error && (
           <div className="inline-error" role="alert">
-            {error}
-            {!provider.configured && (
-              <Link to="/settings#ai">
-                连接模型
-                <ArrowRight size={14} />
-              </Link>
-            )}
+            <span>{error}</span>
+            <Link to="/settings#ai">
+              {provider.configured ? "检查模型" : "连接模型"}
+              <ArrowRight size={14} />
+            </Link>
           </div>
         )}
-        <SpotlightSurface
-          as="form"
+        <ChatComposer
           className="assistant-compose"
+          value={text}
+          onValueChange={setText}
+          inputRef={input}
           onSubmit={send}
+          leading={
+            <>
+              <AssistantCourseContext
+                course={contextCourse}
+                context={courseContext}
+                disabled={busy}
+                onChange={changeContext}
+              />
+              <div className="attachment-list">
+                {files.map((f) => (
+                  <span key={f.id}>
+                    <FileText size={14} />
+                    {f.name}
+                    <IconButton
+                      icon={X}
+                      label={`移除${f.name}`}
+                      onClick={() =>
+                        setFiles(files.filter((x) => x.id !== f.id))
+                      }
+                    />
+                  </span>
+                ))}
+              </div>
+            </>
+          }
         >
-          <AssistantCourseContext
-            course={contextCourse}
-            context={courseContext}
-            disabled={busy}
-            onChange={changeContext}
-          />
-          <div className="attachment-list">
-            {files.map((f) => (
-              <span key={f.id}>
-                <FileText size={14} />
-                {f.name}
-                <IconButton
-                  icon={X}
-                  label={`移除${f.name}`}
-                  onClick={() => setFiles(files.filter((x) => x.id !== f.id))}
-                />
-              </span>
-            ))}
-          </div>
-          <Textarea
-            ref={input}
-            aria-label="输入问题"
-            className="flex-1 resize-none rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="想弄明白什么？从这里开始…"
-            rows={1}
-            onKeyDown={(e) => {
-              if (
-                e.key === "Enter" &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing
-              ) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
           <div className="assistant-compose-toolbar">
             <div className="assistant-compose-tools">
+              <VoiceInput
+                key={id || "new"}
+                disabled={busy}
+                inputRef={input}
+                onBusyChange={setVoiceBusy}
+                onTranscript={(transcript) =>
+                  setText((draft) => appendVoiceText(draft, transcript))
+                }
+              />
               <UploadButton
                 variant="ghost"
                 size="icon-sm"
@@ -2115,6 +2072,18 @@ export function AssistantPage() {
               >
                 <Paperclip size={18} />
               </UploadButton>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="assistant-web-search"
+                aria-pressed={webSearch}
+                onClick={changeWebSearch}
+                disabled={busy}
+              >
+                <Globe size={16} />
+                联网搜索
+              </Button>
               {id && (
                 <ButtonLink
                   to="/assistant"
@@ -2129,22 +2098,12 @@ export function AssistantPage() {
                 </ButtonLink>
               )}
             </div>
-            <Link
-              to="/settings#ai"
+            <ModelSelector
               className="assistant-model"
-              title={
-                provider.configured
-                  ? `当前模型：${provider.model}，前往设置`
-                  : "前往设置连接 AI 模型"
-              }
-            >
-              <span
-                className={`assistant-model-dot ${provider.configured ? "connected" : ""}`}
-              />
-              <span className="assistant-model-name">
-                {provider.configured ? provider.model : "连接模型"}
-              </span>
-            </Link>
+              value={selectedProvider.id}
+              onValueChange={changeModel}
+              disabled={busy}
+            />
             {busy ? (
               <IconButton
                 icon={Square}
@@ -2159,13 +2118,13 @@ export function AssistantPage() {
                 size="icon-sm"
                 aria-label="发送问题"
                 title="发送问题"
-                disabled={!text.trim()}
+                disabled={!text.trim() || voiceBusy}
               >
                 <ArrowUp size={18} />
               </Button>
             )}
           </div>
-        </SpotlightSurface>
+        </ChatComposer>
         <div className="assistant-compose-meta">
           <span>支持 PDF、文档与文本资料</span>
           <span className="assistant-keyboard-hint">
@@ -2173,6 +2132,6 @@ export function AssistantPage() {
           </span>
         </div>
       </div>
-    </main>
+    </Chat>
   );
 }

@@ -9,7 +9,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import ToolAnnotations
 from pydantic import Field
 
-from app.services.course_jobs import CourseInput
+from app.services.course_jobs import CourseInput, SchoolContext
 
 
 def create_mcp(app, settings):
@@ -36,10 +36,12 @@ def create_mcp(app, settings):
         foundation: Annotated[str, Field(max_length=1000)] = "",
         depth: Literal["recommended", "overview", "systematic", "deep"] = "recommended",
         scale: Annotated[str, Field(max_length=1000)] = "", request_id: UUID | None = None,
+        learningMode: Literal["self", "school"] = "self",
+        schoolContext: SchoolContext | None = None,
     ) -> dict[str, Any]:
         """为当前凭证所属用户创建课程。context 接收用户指定的代码、提交 diff 或文字资料，不接收文件路径来读取服务器文件；任务在后台生成，返回 jobUrl，完成后再返回 learningUrl。建议提供稳定的 request_id(UUID) 防止重试重复创建。"""
         user = principal(ctx, "courses:create")
-        payload = CourseInput(topic=topic, context=context, source_type=source_type, goal=goal, foundation=foundation, depth=depth, scale=scale, request_id=request_id)
+        payload = CourseInput(topic=topic, context=context, source_type=source_type, goal=goal, foundation=foundation, depth=depth, scale=scale, request_id=request_id, learningMode=learningMode, schoolContext=schoolContext or SchoolContext())
         return invoke(lambda: app.state.jobs.create(user, payload))
 
     @server.tool(annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))

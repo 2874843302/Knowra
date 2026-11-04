@@ -24,7 +24,8 @@ def test_search_parser_keeps_actual_titles_excerpts_and_destinations():
     assert destination("https://user:password@example.com/a") is None
 
 
-def test_research_contract_queries_and_real_response_parsing(client, monkeypatch):
+@pytest.mark.parametrize("endpoint", ["/api/course-research", "/api/web-search"])
+def test_research_contract_queries_and_real_response_parsing(client, monkeypatch, endpoint):
     captured = []
 
     def handler(request):
@@ -36,7 +37,7 @@ def test_research_contract_queries_and_real_response_parsing(client, monkeypatch
 
     original = httpx.AsyncClient
     monkeypatch.setattr("app.services.course_research.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
-    response = client.post("/api/course-research", json={"queries": [" Vue guide ", "Spring Boot guide", "Vue guide"]})
+    response = client.post(endpoint, json={"queries": [" Vue guide ", "Spring Boot guide", "Vue guide"]})
     assert response.status_code == 200
     data = response.json()
     assert data["queries"] == ["Vue guide", "Spring Boot guide"]

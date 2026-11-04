@@ -86,7 +86,7 @@ export function createIdentityLineField(
     target: null,
     pending: null,
   }));
-  const focusTarget = host.closest(".auth-card-stack") || host;
+  const focusTarget = host;
   let width = canvas.clientWidth,
     height = canvas.clientHeight,
     dpr = 0;

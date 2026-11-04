@@ -7,8 +7,8 @@ import React, {
   useState,
 } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { Button } from "./design/primitives";
 import { AuthPage } from "./components/auth-page";
+import { WorkspaceLoading } from "./components/workspace-loading";
 
 const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -119,17 +119,11 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{ user, authenticate, logout, refresh }}>
       {loading ? (
-        <div className="workspace-loading">
-          <h2>知序 Knowra</h2>
-          <p>正在打开学习空间…</p>
-        </div>
+        <WorkspaceLoading />
       ) : user ? (
         <React.Fragment key={user.id}>{children}</React.Fragment>
       ) : error ? (
-        <div className="workspace-loading">
-          <p role="alert">{error}</p>
-          <Button onClick={refresh}>重新连接</Button>
-        </div>
+        <WorkspaceLoading error={error} onRetry={refresh} />
       ) : isAuthRoute ? (
         <AuthPage signup={location.pathname === "/signup"} />
       ) : (

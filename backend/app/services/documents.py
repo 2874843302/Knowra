@@ -67,7 +67,7 @@ def save_material(db, workspace_id, filename, content):
     file_path.write_bytes(content)
     try:
         with db.connect() as connection:
-            connection.execute("INSERT INTO materials VALUES (?, ?, ?, ?, ?, ?, ?)",
+            connection.execute("INSERT INTO materials VALUES (%s, %s, %s, %s, %s, %s, %s)",
                                (material_id, workspace_id, name, len(content), text, date, extension))
     except Exception:
         file_path.unlink(missing_ok=True)

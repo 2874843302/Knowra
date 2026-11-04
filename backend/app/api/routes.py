@@ -4,7 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
-from app.schemas import AIRequest, CourseResearchRequest, InitializeWorkspace, ProviderInput, UpdateWorkspace
+from app.schemas import AIRequest, CourseResearchRequest, InitializeWorkspace, ProviderInput, ProviderSelection, UpdateWorkspace
 from app.services.course_research import search_courses
 from app.services.documents import MAX_BYTES, save_material
 from app.services.course_jobs import user_provider
@@ -26,8 +26,10 @@ def workspace(request: Request):
 
 
 @router.get("/health")
-def health():
-    return {"ok": True, "backend": "python", "database": "sqlite", "version": "2.0.0"}
+def health(db=Depends(database)):
+    with db.connect() as connection:
+        connection.execute("SELECT 1")
+    return {"ok": True, "backend": "python", "database": "postgresql", "version": "2.0.0"}
 
 
 @router.get("/workspace")
@@ -55,7 +57,7 @@ def upload_material(file: Annotated[UploadFile, File()], workspace_id=Depends(wo
 @router.get("/materials/{material_id}/file")
 def original_material(material_id: UUID, workspace_id=Depends(workspace), db=Depends(database)):
     with db.connect() as connection:
-        row = connection.execute("SELECT name FROM materials WHERE id = ? AND workspace_id = ?",
+        row = connection.execute("SELECT name FROM materials WHERE id = %s AND workspace_id = %s",
                                  (str(material_id), workspace_id)).fetchone()
     if row is None:
         raise HTTPException(404, "原文件不存在。")
@@ -73,11 +75,27 @@ def save_provider(payload: ProviderInput, service=Depends(provider)):
     return service.save(payload)
 
 
+@router.post("/provider", status_code=201)
+def add_provider(payload: ProviderInput, service=Depends(provider)):
+    return service.save(payload, create=True)
+
+
+@router.put("/provider/active")
+def select_provider(payload: ProviderSelection, service=Depends(provider)):
+    return service.activate(payload.id)
+
+
+@router.delete("/provider/{profile_id}")
+def delete_provider(profile_id: str, service=Depends(provider)):
+    return service.delete(profile_id)
+
+
 @router.post("/ai")
 async def ai(payload: AIRequest, request: Request, service=Depends(provider)):
     return await service.complete(payload, is_disconnected=request.is_disconnected)
 
 
 @router.post("/course-research")
+@router.post("/web-search")
 async def course_research(payload: CourseResearchRequest):
     return await search_courses(payload.queries)

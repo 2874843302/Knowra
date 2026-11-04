@@ -141,6 +141,7 @@ export const Cover = ({ course, className = "", showMark = true }) => (
 );
 
 export const courseImage = (course) => {
+  if (course.coverImage) return course.coverImage;
   const artwork = {
     "linear-algebra": "math",
     "how-ai-works": "ai",
@@ -417,7 +418,11 @@ export function Shell({ children }) {
           </div>
         )}
         <motion.div
-          key={location.pathname}
+          key={
+            location.pathname.split("/")[1] === "assistant"
+              ? "/assistant"
+              : location.pathname
+          }
           className="page-transition"
           data-navigation={location.pathname}
           initial={reducedMotion ? false : { opacity: 0.55 }}
@@ -436,7 +441,7 @@ export function Shell({ children }) {
 }
 
 export function Header({ onMenu, expanded, compact }) {
-  const { state, provider, setSearchOpen } = useStore();
+  const { state, setSearchOpen } = useStore();
   const [notifications, setNotifications] = useState(false);
   const { pathname } = useLocation();
   useEffect(() => {
@@ -457,18 +462,16 @@ export function Header({ onMenu, expanded, compact }) {
         )}
       </div>
       <div className="header-actions">
-        <span
-          className={`model-status ${provider.configured ? "connected" : ""}`}
-        >
-          <i />
-          {provider.configured ? "AI 已连接" : "本地模式"}
-        </span>
         <IconButton
           icon={Search}
           label="搜索"
           onClick={() => setSearchOpen(true)}
         />
-        <DropdownMenu open={notifications} onOpenChange={setNotifications}>
+        <DropdownMenu
+          modal={false}
+          open={notifications}
+          onOpenChange={setNotifications}
+        >
           <DropdownMenuTrigger asChild>
             <IconButton icon={Bell} label="学习通知" />
           </DropdownMenuTrigger>
@@ -499,8 +502,13 @@ export function Header({ onMenu, expanded, compact }) {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-        <Link className="avatar" to="/settings" title={state.name}>
-          <img src="/reference/avatar.svg" alt={state.name} />
+        <Link
+          className="avatar"
+          to="/settings"
+          title={state.name}
+          aria-label="个人资料与头像"
+        >
+          <img src={state.avatar || "/reference/avatar.svg"} alt={state.name} />
         </Link>
       </div>
     </header>

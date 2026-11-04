@@ -15,6 +15,7 @@ from app.core.config import Settings
 
 def test_health_and_route_fallback(client):
     assert client.get("/api/health").json()["backend"] == "python"
+    assert client.get("/api/health").json()["database"] == "postgresql"
     assert client.get("/api/unknown").status_code == 404
     assert client.get("/course/python").status_code == 200
     assert "image/svg+xml" in client.get("/reference/home.svg").headers["content-type"]
@@ -151,6 +152,110 @@ def mock_provider(client, monkeypatch, handler):
     client.put("/api/provider", json={"baseUrl": "https://example.com/v1", "model": "test", "apiKey": "fixture-only"})
     original = httpx.AsyncClient
     monkeypatch.setattr("app.services.provider.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+
+
+@pytest.mark.parametrize("base_url,model,kind,effort,repair,expected", [
+    ("https://api.deepseek.com/v1", "deepseek-flash", "course_unit", "none", False, "disabled"),
+    ("https://api.deepseek.com", "deepseek-v4-flash", "course_unit", "low", False, "low"),
+    ("https://api.deepseek.com/v1", "deepseek-v4-pro", "course_plan", "high", False, "high"),
+    ("https://api.deepseek.com/v1", "deepseek-flash", "course_search", "high", False, "disabled"),
+    ("https://api.deepseek.com/v1", "deepseek-flash", "course_questions", "high", False, "disabled"),
+    ("https://api.deepseek.com/v1", "deepseek-flash", "course_unit", "high", True, "disabled"),
+    ("https://api.deepseek.com/v1", "deepseek-flash", "chat", "none", False, None),
+    ("https://example.com/v1", "deepseek-flash", "course_unit", "none", False, None),
+    ("http://127.0.0.1:8787/v1", "deepseek-web", "course_unit", "none", False, None),
+    ("https://api.deepseek.com/v1", "custom-model", "course_unit", "none", False, None),
+])
+def test_generation_reasoning_policy_is_provider_and_stage_specific(client, monkeypatch, base_url, model, kind, effort, repair, expected):
+    captured = []
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}]})
+    mock_provider(client, monkeypatch, handler)
+    client.put("/api/provider", json={"baseUrl": base_url, "model": model, "apiKey": "fixture-only"})
+    client.app.state.provider.settings.knowra_ai_generation_effort = effort
+    messages = [{"role": "user", "content": "【内容校验反馈】缺少 quiz" if repair else "解释共享状态"}]
+    response = client.post("/api/ai", json={"kind": kind, "messages": messages})
+    assert response.json() == {"content": "{}"}
+    body = captured[0]
+    if expected is None:
+        assert "thinking" not in body and "reasoning_effort" not in body
+    elif expected == "disabled":
+        assert body["thinking"] == {"type": "disabled"}
+        assert "reasoning_effort" not in body
+        assert body["temperature"] == .5
+    else:
+        assert body["thinking"] == {"type": "enabled"}
+        assert body["reasoning_effort"] == expected
+        assert "temperature" not in body
+    if kind == "course_unit":
+        assert "max_tokens" not in body  # Speed must not come from truncating teaching.
+
+
+def test_generation_continuation_keeps_reasoning_policy(client, monkeypatch):
+    captured = []
+    def handler(request):
+        captured.append(json.loads(request.content))
+        first = len(captured) == 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"title":' if first else '"完整课程"}'}, "finish_reason": "length" if first else "stop"}]})
+    mock_provider(client, monkeypatch, handler)
+    client.put("/api/provider", json={"baseUrl": "https://api.deepseek.com/v1", "model": "deepseek-flash", "apiKey": "fixture-only"})
+    response = client.post("/api/ai", json={"kind": "course_unit", "messages": [{"role": "user", "content": "课程"}]})
+    assert json.loads(response.json()["content"]) == {"title": "完整课程"}
+    assert len(captured) == 2
+    assert all(body["thinking"] == {"type": "disabled"} for body in captured)
+    assert "response_format" not in captured[1]
+
+
+@pytest.mark.parametrize("kind", ["course_search", "course_questions", "course_plan", "course_unit", "course_edit_plan", "course_edit_lesson", "course_practice", "classroom_adapt"])
+def test_validation_feedback_overrides_full_generation_with_patch_protocol(client, monkeypatch, kind):
+    captured = []
+    patch = '{"patches":[{"op":"add","path":"/quiz","value":{"answer":0}}]}'
+    def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": patch}, "finish_reason": "stop"}]})
+    mock_provider(client, monkeypatch, handler)
+    messages = [
+        {"role": "user", "content": "保留当前学习目标"},
+        {"role": "assistant", "content": '{"content":"正确教材"}'},
+        {"role": "user", "content": "【内容校验反馈】缺少 quiz，仅修复这个字段。"},
+    ]
+    response = client.post("/api/ai", json={"kind": kind, "messages": messages})
+    assert response.status_code == 200
+    assert response.json()["content"] == patch
+    assert len(captured) == 1
+    assert captured[0]["messages"][1:] == messages
+    assert "覆盖上文正常生成时的完整对象要求" in captured[0]["messages"][0]["content"]
+    assert "patches" in captured[0]["messages"][0]["content"]
+
+
+@pytest.mark.parametrize("local_web", [False, True])
+def test_repair_continuation_preserves_protocol_and_native_session(client, monkeypatch, local_web):
+    from uuid import uuid4
+    captured = []
+    patch = '{"patches":[{"op":"add","path":"/quiz","value":{"answer":0}}]}'
+    fragments = [patch[:28], patch[28:]]
+    def handler(request):
+        captured.append(json.loads(request.content))
+        index = len(captured) - 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": fragments[index]}, "finish_reason": "length" if index == 0 else "stop"}]})
+    mock_provider(client, monkeypatch, handler)
+    if local_web:
+        client.put("/api/provider", json={"baseUrl": "http://127.0.0.1:8787/v1", "model": "deepseek-web", "apiKey": "fixture-only"})
+    response = client.post("/api/ai", json={"kind": "course_unit", "conversation_id": str(uuid4()), "messages": [
+        {"role": "user", "content": "保留原始目标"},
+        {"role": "assistant", "content": '{"content":"正确教材"}'},
+        {"role": "user", "content": "【内容校验反馈】缺少 quiz"},
+    ]})
+    assert response.status_code == 200
+    assert response.json()["content"] == patch
+    assert len(captured) == 2
+    assert all("覆盖上文正常生成时的完整对象要求" in body["messages"][0]["content"] for body in captured)
+    assert "response_format" not in captured[1]
+    if local_web:
+        assert captured[0]["session_id"] == captured[1]["session_id"]
+        assert '[assistant]\n{"content":"正确教材"}' in captured[0]["messages"][1]["content"]
+        assert "[user]\n【内容校验反馈】" in captured[0]["messages"][1]["content"]
 
 
 @pytest.mark.parametrize("status", [400, 422])

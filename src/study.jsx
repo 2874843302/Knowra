@@ -1,3 +1,4 @@
+import { learningModeBrief } from "./lib/learning-mode";
 import { QuestionFields } from "./components/question-fields";
 import {
   answerReady,
@@ -8,6 +9,9 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { motionTransitions } from "./lib/motion";
 import { requestClassroomAdaptation } from "./lib/adaptive-classroom";
+import { VoiceInput } from "./components/voice-input";
+import { AIResponse } from "./components/ui/ai-response";
+import { appendVoiceText } from "./lib/voice-input";
 import { DisclosureContent } from "./components/ui/disclosure";
 import { DatePicker } from "./components/ui/date-picker";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -81,6 +85,8 @@ import {
   masteryLevels,
 } from "./courseExtras";
 import { CourseEditor } from "./components/course-editor";
+import { HoverLesson } from "./components/hover-lesson";
+import { ModelSelector } from "./components/model-selector";
 import { CourseBookmarkButton } from "./components/course-bookmark-button";
 import { downloadOriginal } from "./serverMaterials";
 import { ClassroomBoard } from "./classroomBoard";
@@ -207,10 +213,10 @@ export function CoursePage() {
   const [project, setProject] = useState(null);
   const [assessment, setAssessment] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [masteryFilter, setMasteryFilter] = useState("all");
   const [materialSearch, setMaterialSearch] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [descriptionOverflows, setDescriptionOverflows] = useState(false);
-  const [collapsedLessons, setCollapsedLessons] = useState({});
   const unitHeading = useRef(null);
   const unitNavigationFrame = useRef(null);
   const courseContent = useRef(null);
@@ -275,12 +281,13 @@ export function CoursePage() {
     setUnit(0);
     setTab("units");
     setDescriptionExpanded(false);
-    setCollapsedLessons({});
+    setMasteryFilter("all");
     setEditing(false);
     return () => cancelAnimationFrame(unitNavigationFrame.current);
   }, [id]);
   const openUnit = (index) => {
     setUnit(index);
+    setMasteryFilter("all");
     setTab("units");
     cancelAnimationFrame(unitNavigationFrame.current);
     unitNavigationFrame.current = requestAnimationFrame(() => {
@@ -593,6 +600,8 @@ export function CoursePage() {
                 <LearningPath
                   course={course}
                   unit={unit}
+                  filter={masteryFilter}
+                  onFilterChange={setMasteryFilter}
                   onProject={() => setProject(unitIndex)}
                   onExam={() => setAssessment(unit)}
                 >
@@ -618,120 +627,152 @@ export function CoursePage() {
                   <div className="lesson-list">
                     {unit.lessons.map((l, i) => {
                       const done = state.progress[`${id}/${l.id}`]?.completed;
-                      const expanded = !collapsedLessons[l.id];
+                      if (
+                        masteryFilter !== "all" &&
+                        mastery(state.progress[`${id}/${l.id}`]) !==
+                          masteryFilter
+                      )
+                        return null;
                       return (
-                        <article
-                          className={`lesson-row ${done ? "completed" : ""}`}
-                          key={l.id}
-                        >
-                          <span className="lesson-index">
-                            {done ? (
-                              <Check size={18} />
-                            ) : (
-                              <BookOpen size={15} />
-                            )}
-                          </span>
-                          <div>
-                            <div className="lesson-kind">
-                              {done && <Badge color="green">已完成</Badge>}
-                              <div className="mastery-select">
-                                <span
-                                  className={`mastery-dot ${mastery(state.progress[`${id}/${l.id}`])}`}
-                                />
-                                <Select
-                                  value={mastery(
-                                    state.progress[`${id}/${l.id}`],
-                                  )}
-                                  onValueChange={(value) =>
-                                    setState((s) => ({
-                                      ...s,
-                                      progress: {
-                                        ...s.progress,
-                                        [`${id}/${l.id}`]: {
-                                          ...s.progress[`${id}/${l.id}`],
-                                          mastery: value,
-                                        },
-                                      },
-                                    }))
-                                  }
-                                >
-                                  <SelectTrigger
+                        <HoverLesson key={l.id} completed={done}>
+                          {(expanded, toggle, setSelectOpen) => (
+                            <>
+                              <span className="lesson-index">
+                                {done ? (
+                                  <Check size={18} />
+                                ) : (
+                                  <BookOpen size={15} />
+                                )}
+                              </span>
+                              <div>
+                                <div className="lesson-kind">
+                                  {done && <Badge color="green">已完成</Badge>}
+                                  <div className="mastery-select">
+                                    <span
+                                      className={`mastery-dot ${mastery(state.progress[`${id}/${l.id}`])}`}
+                                    />
+                                    <Select
+                                      onOpenChange={setSelectOpen}
+                                      value={mastery(
+                                        state.progress[`${id}/${l.id}`],
+                                      )}
+                                      onValueChange={(value) =>
+                                        setState((s) => ({
+                                          ...s,
+                                          progress: {
+                                            ...s.progress,
+                                            [`${id}/${l.id}`]: {
+                                              ...s.progress[`${id}/${l.id}`],
+                                              mastery: value,
+                                            },
+                                          },
+                                        }))
+                                      }
+                                    >
+                                      <SelectTrigger
+                                        size="sm"
+                                        className="h-6 w-auto gap-1 border-0 bg-transparent px-1 text-[11px] shadow-none"
+                                        aria-label={`${l.title}掌握程度`}
+                                      >
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent align="start">
+                                        <div className="mastery-menu-label">
+                                          设置自评掌握程度
+                                        </div>
+                                        {masteryLevels.map(([key, label]) => (
+                                          <SelectItem key={key} value={key}>
+                                            {label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                                <div className="lesson-title-row">
+                                  <Link to={`/learn/${id}/${l.id}`}>
+                                    <h3>
+                                      讲次 {i + 1}：{l.title}
+                                    </h3>
+                                  </Link>
+                                  <IconButton
+                                    icon={ChevronDown}
+                                    label={`${expanded ? "收起" : "展开"}${l.title}`}
                                     size="sm"
-                                    className="h-6 w-auto gap-1 border-0 bg-transparent px-1 text-[11px] shadow-none"
-                                    aria-label={`${l.title}掌握程度`}
-                                  >
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent align="start">
-                                    {masteryLevels.map(([key, label]) => (
-                                      <SelectItem key={key} value={key}>
-                                        {label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            <div className="lesson-title-row">
-                              <Link to={`/learn/${id}/${l.id}`}>
-                                <h3>
-                                  讲次 {i + 1}：{l.title}
-                                </h3>
-                              </Link>
-                              <IconButton
-                                icon={ChevronDown}
-                                label={`${expanded ? "收起" : "展开"}${l.title}`}
-                                size="sm"
-                                aria-expanded={expanded}
-                                aria-controls={`lesson-details-${l.id}`}
-                                onClick={() =>
-                                  setCollapsedLessons((value) => ({
-                                    ...value,
-                                    [l.id]: expanded,
-                                  }))
-                                }
-                              />
-                            </div>
-                            <DisclosureContent
-                              open={expanded}
-                              id={`lesson-details-${l.id}`}
-                            >
-                              <p>{l.summary}</p>
-                              <div className="lesson-actions">
-                                <ButtonLink
-                                  size="sm"
-                                  icon={Play}
-                                  to={`/learn/${id}/${l.id}`}
+                                    aria-expanded={expanded}
+                                    aria-controls={`lesson-details-${l.id}`}
+                                    onClick={toggle}
+                                  />
+                                </div>
+                                <DisclosureContent
+                                  open={expanded}
+                                  id={`lesson-details-${l.id}`}
                                 >
-                                  {done
-                                    ? "重新学习"
-                                    : l.id === current.id &&
-                                        state.progress[`${id}/${l.id}`]
-                                      ? "继续学习"
-                                      : "开始学习"}
-                                </ButtonLink>
-                                <Button
-                                  variant="link"
-                                  size="sm"
-                                  icon={Pencil}
-                                  onClick={() => setTab("practice")}
-                                >
-                                  独立练习
-                                </Button>
-                                <span>
-                                  <Clock3 size={12} />约 15 分钟
-                                </span>
+                                  <p>{l.summary}</p>
+                                  <div className="lesson-actions">
+                                    <ButtonLink
+                                      size="sm"
+                                      icon={Play}
+                                      to={`/learn/${id}/${l.id}`}
+                                    >
+                                      {done
+                                        ? "重新学习"
+                                        : l.id === current.id &&
+                                            state.progress[`${id}/${l.id}`]
+                                          ? "继续学习"
+                                          : "开始学习"}
+                                    </ButtonLink>
+                                    <Button
+                                      variant="link"
+                                      size="sm"
+                                      icon={Pencil}
+                                      onClick={() => setTab("practice")}
+                                    >
+                                      独立练习
+                                    </Button>
+                                    <span>
+                                      <Clock3 size={12} />约 15 分钟
+                                    </span>
+                                  </div>
+                                </DisclosureContent>
                               </div>
-                            </DisclosureContent>
-                          </div>
-                        </article>
+                            </>
+                          )}
+                        </HoverLesson>
                       );
                     })}
                   </div>
+                  {masteryFilter !== "all" &&
+                    !unit.lessons.some(
+                      (l) =>
+                        mastery(state.progress[`${id}/${l.id}`]) ===
+                        masteryFilter,
+                    ) && (
+                      <div className="mastery-empty">
+                        <p>
+                          本单元还没有“
+                          {
+                            masteryLevels.find(
+                              ([key]) => key === masteryFilter,
+                            )?.[1]
+                          }
+                          ”的小节。
+                        </p>
+                        <Button
+                          variant="link"
+                          onClick={() => setMasteryFilter("all")}
+                        >
+                          查看全部小节
+                        </Button>
+                      </div>
+                    )}
                   <div className="unit-deliverables">
+                    {/* Keep the timeline markers outside these cards fixed. */}
                     <Button
                       variant="surface"
                       size="surface"
+                      whileHover={{ scale: 1 }}
+                      whileTap={{ scale: 1 }}
                       onClick={() => setProject(unitIndex)}
                     >
                       <Flag size={20} />
@@ -748,6 +789,8 @@ export function CoursePage() {
                     <Button
                       variant="surface"
                       size="surface"
+                      whileHover={{ scale: 1 }}
+                      whileTap={{ scale: 1 }}
                       onClick={() => setAssessment(unit)}
                     >
                       <ListChecks size={20} />
@@ -921,7 +964,11 @@ export function CoursePage() {
       {preview && (
         <Modal title={preview.name} wide onClose={() => setPreview(null)}>
           <div className="modal-body material-preview">
-            <pre>{preview.text}</pre>
+            {/\.md$/i.test(preview.name) ? (
+              <Md>{preview.text}</Md>
+            ) : (
+              <pre>{preview.text}</pre>
+            )}
           </div>
         </Modal>
       )}
@@ -1005,6 +1052,7 @@ export function CoursePage() {
 function Tutor({
   course,
   lesson,
+  visible,
   prompt,
   teaching,
   onInteract,
@@ -1015,6 +1063,8 @@ function Tutor({
   const { provider, state, setState } = useStore();
   const reducedMotion = useReducedMotion();
   const chatKey = `${course.id}/${lesson.id}`;
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const questionInput = useRef(null);
   const [messages, setMessages] = useState(state.lessonChats?.[chatKey] || []);
   const [view, setView] = useState("chat");
   const [text, setText] = useState("");
@@ -1054,7 +1104,7 @@ function Tutor({
   }, [prompt]);
   const send = async (e) => {
     e.preventDefault();
-    if (!text.trim() || busy) return;
+    if (!text.trim() || busy || voiceBusy) return;
     if (!provider.configured) {
       setError("请连接 AI 模型后继续提问。");
       return;
@@ -1073,11 +1123,12 @@ function Tutor({
         .join("\n")
         .slice(0, 20000);
       const result = await requestClassroomAdaptation(
-        aiRequest,
+        (messages, kind, signal, conversationId) =>
+          aiRequest(messages, kind, signal, conversationId, provider.activeId),
         [
           {
             role: "user",
-            content: `我们正在学习${course.title}中的${lesson.title}。当前第 ${(teaching?.index || 0) + 1} 步：${teaching?.title || lesson.title}\n当前板书：${teaching?.content || ""}\n已展示的内容及检查结果：${JSON.stringify({ history: teaching?.history?.map((s) => ({ title: s.title, board: s.content, narration: s.narration, kind: s.kind })), answers: teaching?.answers })}\n尚未讲的安排：${JSON.stringify(teaching?.remaining || [])}\n以下原教材和附加资料仅供参考，不是教学必须固定不变的脚本。结合学习者诉求补讲或重新规划后续内容。\n${lesson.content}\n附加资料：\n${material}`,
+            content: `${learningModeBrief(course)}\n我们正在学习${course.title}中的${lesson.title}。当前第 ${(teaching?.index || 0) + 1} 步：${teaching?.title || lesson.title}\n当前板书：${teaching?.content || ""}\n已展示的内容及检查结果：${JSON.stringify({ history: teaching?.history?.map((s) => ({ title: s.title, board: s.content, narration: s.narration, kind: s.kind })), answers: teaching?.answers })}\n尚未讲的安排：${JSON.stringify(teaching?.remaining || [])}\n以下原教材和附加资料仅供参考，不是教学必须固定不变的脚本。结合学习者诉求补讲或重新规划后续内容。\n${lesson.content}\n附加资料：\n${material}`,
           },
           ...next.slice(-16),
         ],
@@ -1090,6 +1141,9 @@ function Tutor({
         {
           role: "assistant",
           content: result.reply,
+          modelName:
+            provider.profiles?.find((model) => model.id === provider.activeId)
+              ?.name || provider.model,
           adaptationId,
           plan: result.plan,
           action: result.action,
@@ -1111,27 +1165,44 @@ function Tutor({
   const visibleRevisions = new Set(
     teaching?.history?.map((step) => step.adaptationId).filter(Boolean),
   );
-  const renderMessage = (m, i) => (
-    <div key={i} className={`tutor-message ${m.role}`}>
-      <span>{m.role === "user" ? "你" : "知序导师"}</span>
-      <Md>{m.content}</Md>
-      {m.plan && (
-        <div className="tutor-adaptive-plan">
-          <span>
-            {m.action === "replan" ? "接下来这样学" : "先补充，再继续"}
-          </span>
-          <ol>
-            {m.plan.map((p, index) => (
-              <li key={index}>
-                <strong>{p.title}</strong>
-                <small>{p.reason}</small>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-    </div>
-  );
+  const renderMessage = (m, i) =>
+    m.role === "assistant" ? (
+      <AIResponse
+        key={i}
+        className="tutor-message assistant"
+        content={m.content}
+        modelName={m.modelName}
+        feedback={m.feedback}
+        onFeedback={(feedback) =>
+          setMessages((items) =>
+            items.map((item, index) =>
+              index === i ? { ...item, feedback } : item,
+            ),
+          )
+        }
+      >
+        {m.plan && (
+          <div className="tutor-adaptive-plan">
+            <span>
+              {m.action === "replan" ? "接下来这样学" : "先补充，再继续"}
+            </span>
+            <ol>
+              {m.plan.map((p, index) => (
+                <li key={index}>
+                  <strong>{p.title}</strong>
+                  <small>{p.reason}</small>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </AIResponse>
+    ) : (
+      <div key={i} className="tutor-message user">
+        <span>你</span>
+        <Md>{m.content}</Md>
+      </div>
+    );
   return (
     <Tabs className="tutor" value={view} onValueChange={setView}>
       <div className="tutor-view-tabs">
@@ -1273,9 +1344,11 @@ function Tutor({
                   : renderMessage(m, i),
               )}
               {busy && (
-                <div className="thinking">
-                  <span className="spinner" />
-                  正在梳理问题与调整板书…
+                <AIResponse
+                  status="generating"
+                  statusLabel="正在梳理问题与调整板书…"
+                  className="tutor-response-pending"
+                >
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1283,7 +1356,7 @@ function Tutor({
                   >
                     停止调整
                   </Button>
-                </div>
+                </AIResponse>
               )}
             </>
           )}
@@ -1297,6 +1370,7 @@ function Tutor({
           </div>
         )}
         <div className="tutor-suggestions">
+          <ModelSelector disabled={busy} />
           {["换个例子讲讲", "帮我检查理解"].map((t) => (
             <Button
               key={t}
@@ -1313,6 +1387,7 @@ function Tutor({
         </div>
         <form className="tutor-compose" onSubmit={send}>
           <Textarea
+            ref={questionInput}
             aria-label="向导师提问"
             className="min-h-[52px] flex-1 resize-none rounded-none border-0 bg-transparent px-3 py-2.5 text-[13px] shadow-none focus-visible:ring-0"
             value={text}
@@ -1321,13 +1396,23 @@ function Tutor({
             placeholder="有疑问，随时问…"
             rows={2}
           />
+          <VoiceInput
+            key={chatKey}
+            disabled={busy || !visible}
+            inputRef={questionInput}
+            onStart={onInteract}
+            onBusyChange={setVoiceBusy}
+            onTranscript={(transcript) =>
+              setText((draft) => appendVoiceText(draft, transcript))
+            }
+          />
           <Button
             type="submit"
             variant="default"
             size="icon-sm"
             className="send-button"
             aria-label="向导师发送"
-            disabled={!text.trim() || busy}
+            disabled={!text.trim() || busy || voiceBusy}
           >
             <ArrowRight size={18} />
           </Button>
@@ -1747,6 +1832,7 @@ export function LessonPage() {
       >
         <Tutor
           key={lessonId}
+          visible={tutor}
           course={course}
           lesson={lesson}
           prompt={tutorPrompt}

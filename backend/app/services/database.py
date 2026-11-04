@@ -1,6 +1,11 @@
 import copy
 import json
-import sqlite3
+import hashlib
+from pathlib import Path
+
+from psycopg import sql
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -15,58 +20,51 @@ def now():
 
 
 class Database:
-    def __init__(self, directory):
-        self.directory = directory
-        directory.mkdir(parents=True, exist_ok=True)
-        self.path = directory / "knowra.sqlite3"
+    def __init__(self, settings):
+        self.directory = settings.knowra_data_dir
+        self.directory.mkdir(parents=True, exist_ok=True)
+        url = settings.knowra_database_url.get_secret_value()
+        if not url:
+            raise RuntimeError("请配置 KNOWRA_DATABASE_URL，运行需要 PostgreSQL；参考 docs/DATABASE.md。")
+        if not url.startswith(("postgresql://", "postgres://")):
+            raise ValueError("KNOWRA_DATABASE_URL 必须是 PostgreSQL 连接地址。")
+        self.schema = settings.knowra_database_schema
+        self.pool = ConnectionPool(
+            url, min_size=1, max_size=settings.knowra_database_pool_size,
+            timeout=10, open=True,
+            kwargs={"row_factory": dict_row, "connect_timeout": 5,
+                    "options": f"-c search_path={self.schema} -c statement_timeout=30000 -c lock_timeout=10000"},
+        )
+        try:
+            self.pool.wait(timeout=10)
+            self.migrate()
+        except Exception:
+            self.pool.close()
+            raise RuntimeError("PostgreSQL 初始化失败，请检查连接、数据库权限和迁移文件。") from None
+
+    def migrate(self):
         with self.connect() as db:
-            db.executescript("""
-                PRAGMA journal_mode=WAL;
-                CREATE TABLE IF NOT EXISTS workspaces (
-                    id TEXT PRIMARY KEY, revision INTEGER NOT NULL,
-                    state TEXT NOT NULL, updated_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS materials (
-                    id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL,
-                    name TEXT NOT NULL, size INTEGER NOT NULL,
-                    text TEXT NOT NULL, date TEXT NOT NULL, extension TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS materials_workspace ON materials(workspace_id);
-                CREATE TABLE IF NOT EXISTS users (
-                    id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
-                    password_hash TEXT NOT NULL, workspace_id TEXT UNIQUE NOT NULL,
-                    created_at TEXT NOT NULL, is_owner INTEGER NOT NULL DEFAULT 0
-                );
-                CREATE TABLE IF NOT EXISTS sessions (
-                    token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL,
-                    expires_at INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS auth_limits (
-                    key TEXT PRIMARY KEY, attempts INTEGER NOT NULL, resets_at INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS mcp_tokens (
-                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
-                    token_hash TEXT UNIQUE NOT NULL, suffix TEXT NOT NULL, scopes TEXT NOT NULL,
-                    created_at TEXT NOT NULL, expires_at INTEGER NOT NULL,
-                    last_used_at TEXT, revoked_at TEXT
-                );
-                CREATE TABLE IF NOT EXISTS course_jobs (
-                    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, request_id TEXT,
-                    status TEXT NOT NULL, payload TEXT NOT NULL, checkpoint TEXT NOT NULL,
-                    error TEXT NOT NULL, course_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-                    UNIQUE(user_id, request_id)
-                );
-            """)
+            db.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"knowra:migrate:{self.schema}",))
+            db.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(self.schema)))
+            db.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+            for path in sorted((Path(__file__).parents[1] / "migrations").glob("*.sql")):
+                script = path.read_text(encoding="utf-8")
+                checksum = hashlib.sha256(script.encode()).hexdigest()
+                applied = db.execute("SELECT checksum FROM schema_migrations WHERE version=%s", (path.name,)).fetchone()
+                if applied:
+                    if applied["checksum"] != checksum:
+                        raise RuntimeError("已应用的数据库迁移文件被修改。")
+                    continue
+                db.execute(script, prepare=False)
+                db.execute("INSERT INTO schema_migrations (version, checksum) VALUES (%s,%s)", (path.name, checksum))
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=15)
-        db.row_factory = sqlite3.Row
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        with self.pool.connection() as db:
+            yield db
+
+    def close(self):
+        self.pool.close()
 
     @staticmethod
     def envelope(row):
@@ -74,7 +72,7 @@ class Database:
 
     def get(self, workspace_id):
         with self.connect() as db:
-            row = db.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+            row = db.execute("SELECT * FROM workspaces WHERE id = %s", (workspace_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "学习空间尚未初始化。")
         return self.envelope(row)
@@ -82,8 +80,8 @@ class Database:
     def initialize(self, workspace_id, state):
         serialized = self.serialize(state)
         with self.connect() as db:
-            db.execute("INSERT OR IGNORE INTO workspaces VALUES (?, 0, ?, ?)", (workspace_id, serialized, now()))
-            row = db.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+            db.execute("INSERT INTO workspaces VALUES (%s, 0, %s, %s) ON CONFLICT (id) DO NOTHING", (workspace_id, serialized, now()))
+            row = db.execute("SELECT * FROM workspaces WHERE id = %s", (workspace_id,)).fetchone()
         return self.envelope(row)
 
     @staticmethod
@@ -100,8 +98,7 @@ class Database:
     def update(self, workspace_id, revision, operations):
         # The revision check and write share one transaction to protect concurrent tabs.
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+            row = db.execute("SELECT * FROM workspaces WHERE id = %s FOR UPDATE", (workspace_id,)).fetchone()
             if row is None:
                 raise HTTPException(404, "学习空间尚未初始化。")
             if row["revision"] != revision:
@@ -119,6 +116,6 @@ class Database:
                     target[operation.path[-1]] = operation.value
             serialized = self.serialize(state)
             timestamp = now()
-            db.execute("UPDATE workspaces SET state = ?, revision = ?, updated_at = ? WHERE id = ?",
+            db.execute("UPDATE workspaces SET state = %s, revision = %s, updated_at = %s WHERE id = %s",
                        (serialized, revision + 1, timestamp, workspace_id))
         return {"state": json.loads(serialized), "revision": revision + 1, "updatedAt": timestamp}

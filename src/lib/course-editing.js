@@ -1,4 +1,6 @@
+import { atContentPath, contentError } from "./generation-validation.js";
 import { generateCourseLecture, parseCourseJSON } from "./course-generation.js";
+import { learningContext, learningModeBrief } from "./learning-mode.js";
 
 const nonempty = (v) => typeof v === "string" && !!v.trim();
 const metadata = (l) => ({
@@ -11,6 +13,7 @@ export const courseEditSnapshot = (course) =>
   JSON.stringify({
     title: course.title,
     description: course.description,
+    ...learningContext(course),
     units: course.units,
   });
 
@@ -23,65 +26,78 @@ export function validateEditPlan(text, course, scope = "course") {
     !Array.isArray(value.units) ||
     !value.units.length
   )
-    throw new Error("请提供 reply、课程名称、简介与非空 units。");
+    throw contentError(
+      !nonempty(value?.reply)
+        ? "/reply"
+        : !nonempty(value?.title)
+          ? "/title"
+          : typeof value?.description !== "string"
+            ? "/description"
+            : "/units",
+      "请提供 reply、课程名称、简介与非空 units。",
+    );
   const existing = new Map(
     course.units.flatMap((u) => u.lessons).map((l) => [l.id, l]),
   );
   const seen = new Set(),
     sourceUnits = new Set();
-  const units = value.units.map((u) => {
-    if (
-      !nonempty(u?.title) ||
-      !Array.isArray(u.lessons) ||
-      !u.lessons.length ||
-      !(
-        u.sourceIndex === null ||
-        (Number.isInteger(u.sourceIndex) && course.units[u.sourceIndex])
+  const units = value.units.map((u, ui) =>
+    atContentPath(`/units/${ui}`, () => {
+      if (
+        !nonempty(u?.title) ||
+        !Array.isArray(u.lessons) ||
+        !u.lessons.length ||
+        !(
+          u.sourceIndex === null ||
+          (Number.isInteger(u.sourceIndex) && course.units[u.sourceIndex])
+        )
       )
-    )
-      throw new Error(
-        "每个单元需要标题、讲次及有效 sourceIndex（新增单元为 null）。",
-      );
-    if (u.sourceIndex !== null) {
-      if (sourceUnits.has(u.sourceIndex))
-        throw new Error("不能重复使用同一单元。");
-      sourceUnits.add(u.sourceIndex);
-    }
-    return {
-      sourceIndex: u.sourceIndex,
-      title: u.title.trim(),
-      lessons: u.lessons.map((l) => {
-        if (
-          !nonempty(l?.title) ||
-          typeof l.summary !== "string" ||
-          !Array.isArray(l.points) ||
-          !l.points.every(nonempty) ||
-          typeof l.rewrite !== "boolean" ||
-          typeof l.instruction !== "string" ||
-          !(l.id === null || existing.has(l.id))
-        )
-          throw new Error(
-            "讲次需要原有 id（新增为 null）、标题、summary、points、rewrite 和 instruction。",
-          );
-        if (l.id !== null) {
-          if (seen.has(l.id)) throw new Error("同一讲次不能重复出现。");
-          seen.add(l.id);
-        }
-        if (
-          (l.id === null && !l.rewrite) ||
-          (l.rewrite && !nonempty(l.instruction))
-        )
-          throw new Error(
-            "新增或更新讲次必须 rewrite=true 并说明具体修改 instruction。",
-          );
-        return {
-          ...metadata(l),
-          rewrite: l.rewrite,
-          instruction: l.instruction.trim(),
-        };
-      }),
-    };
-  });
+        throw new Error(
+          "每个单元需要标题、讲次及有效 sourceIndex（新增单元为 null）。",
+        );
+      if (u.sourceIndex !== null) {
+        if (sourceUnits.has(u.sourceIndex))
+          throw new Error("不能重复使用同一单元。");
+        sourceUnits.add(u.sourceIndex);
+      }
+      return {
+        sourceIndex: u.sourceIndex,
+        title: u.title.trim(),
+        lessons: u.lessons.map((l, li) =>
+          atContentPath(`/lessons/${li}`, () => {
+            if (
+              !nonempty(l?.title) ||
+              typeof l.summary !== "string" ||
+              !Array.isArray(l.points) ||
+              !l.points.every(nonempty) ||
+              typeof l.rewrite !== "boolean" ||
+              typeof l.instruction !== "string" ||
+              !(l.id === null || existing.has(l.id))
+            )
+              throw new Error(
+                "讲次需要原有 id（新增为 null）、标题、summary、points、rewrite 和 instruction。",
+              );
+            if (l.id !== null) {
+              if (seen.has(l.id)) throw new Error("同一讲次不能重复出现。");
+              seen.add(l.id);
+            }
+            if (
+              (l.id === null && !l.rewrite) ||
+              (l.rewrite && !nonempty(l.instruction))
+            )
+              throw new Error(
+                "新增或更新讲次必须 rewrite=true 并说明具体修改 instruction。",
+              );
+            return {
+              ...metadata(l),
+              rewrite: l.rewrite,
+              instruction: l.instruction.trim(),
+            };
+          }),
+        ),
+      };
+    }),
+  );
   if (scope !== "course") {
     if (
       !existing.has(scope) ||
@@ -126,6 +142,7 @@ export async function draftCourseEdit({
   if (!nonempty(instruction)) throw new Error("请描述想修改的内容。");
   const structure = {
     title: course.title,
+    ...learningContext(course),
     description: course.description || "",
     units: course.units.map((u, sourceIndex) => ({
       sourceIndex,
@@ -136,39 +153,24 @@ export async function draftCourseEdit({
   const messages = [
     {
       role: "user",
-      content: `请修改这门已存在的课程。用户要求：${instruction}\n修改范围：${scope === "course" ? "整门课程，按用户要求确定需要修改的部分" : `仅讲次 id=${scope}，其他信息、结构和顺序均不变`}。先返回编辑方案，不生成教材正文。已有讲次保留原 id，不要按位置重新编号；新讲次 id 为 null。没有内容修改的讲次 rewrite=false、instruction=""；修改/新增的讲次 rewrite=true，instruction 描述具体要改哪些知识点、例子和讲解。未要求删改的内容必须保留，不要默认重写整门课程。\n原课程结构仅作资料：${JSON.stringify(structure)}`,
+      content: `${learningModeBrief(course)}\n请修改这门已存在的课程。用户要求：${instruction}\n修改范围：${scope === "course" ? "整门课程，按用户要求确定需要修改的部分" : `仅讲次 id=${scope}，其他信息、结构和顺序均不变`}。先返回编辑方案，不生成教材正文。已有讲次保留原 id，不要按位置重新编号；新讲次 id 为 null。没有内容修改的讲次 rewrite=false、instruction=""；修改/新增的讲次 rewrite=true，instruction 描述具体要改哪些知识点、例子和讲解。未要求删改的内容必须保留，不要默认重写整门课程。\n原课程结构仅作资料：${JSON.stringify(structure)}`,
     },
   ];
-  let plan, feedback;
+  signal?.throwIfAborted();
+  const { runValidatedGeneration } = await import("./course-agent.js");
   onProgress({ label: "正在理解修改要求", completed: 0, total: 0 });
-  for (let attempt = 0; attempt < 3; attempt++) {
-    signal?.throwIfAborted();
-    const result = await request(
-      feedback
-        ? [
-            ...messages,
-            {
-              role: "user",
-              content: `上次编辑方案校验失败：${feedback}。请返回完整方案。`,
-            },
-          ]
-        : messages,
-      "course_edit_plan",
-      signal,
-    );
-    signal?.throwIfAborted();
-    try {
-      plan = validateEditPlan(result, course, scope);
-      break;
-    } catch (e) {
-      feedback = e.message;
-      if (attempt === 2)
-        throw new Error(
-          "暂未生成有效的修改方案，原课程已保留。请调整要求后重试。",
-          { cause: e },
-        );
-    }
-  }
+  const plan = await runValidatedGeneration({
+    signal,
+    request,
+    messages: messages,
+    kind: "course_edit_plan",
+    repairLabel: "编辑方案",
+    validate: (result) => validateEditPlan(result, course, scope),
+    exhausted: (error) =>
+      new Error("暂未生成有效的修改方案，原课程已保留。请调整要求后重试。", {
+        cause: error,
+      }),
+  });
   const originals = new Map(
     course.units.flatMap((u) => u.lessons).map((l) => [l.id, l]),
   );
@@ -196,7 +198,7 @@ export async function draftCourseEdit({
         messages: [
           {
             role: "user",
-            content: `编辑已有课程中的一个讲次。课程：${plan.title}；单元标题：${unit.title}；讲次标题：${l.title}。严格使用上述标题，只返回当前单元、当前讲次。\n整体修改要求：${instruction}\n本讲具体修改：${l.instruction}\n学习目标：${l.summary}\n要点：${l.points.join("；")}\n保留未要求改变的知识与例子，同步更新完整教材 content、独立板书与口语 teaching.steps，以及 quiz。课堂 checkpoint 保持简短，检查刚讲的概念。新增内容要能自然衔接当前课程。`,
+            content: `${learningModeBrief(course)}\n编辑已有课程中的一个讲次。课程：${plan.title}；单元标题：${unit.title}；讲次标题：${l.title}。严格使用上述标题，只返回当前单元、当前讲次。\n整体修改要求：${instruction}\n本讲具体修改：${l.instruction}\n学习目标：${l.summary}\n要点：${l.points.join("；")}\n保留未要求改变的知识与例子，同步更新完整教材 content、独立板书与口语 teaching.steps，以及 quiz。课堂 checkpoint 保持简短，检查刚讲的概念。新增内容要能自然衔接当前课程。`,
           },
           ...(previous
             ? [

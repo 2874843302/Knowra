@@ -66,7 +66,7 @@ try {
         "Reduced motion has no continuous RAF",
       );
     }
-    await page.getByRole("button", { name: "展开课程体验卡片" }).focus();
+    await page.locator(".identity-line-field").focus();
     await page.waitForTimeout(320);
     await expect(canvas).toHaveAttribute("data-targets", /\[\[/);
     await page.screenshot({ path: `${output}/focused-${width}.png` });
@@ -122,15 +122,22 @@ try {
       mobile: false,
     });
     await expect
-      .poll(() => canvas.evaluate((c) => c.width))
-      .toBe(oldSize.width * 2);
+      .poll(() =>
+        canvas.evaluate((c) =>
+          Math.abs(c.width - c.getBoundingClientRect().width * 2),
+        ),
+      )
+      .toBeLessThanOrEqual(1);
     const highDpi = await canvas.evaluate((c) => ({
       width: c.width,
       height: c.height,
       cssWidth: c.clientWidth,
       cssHeight: c.clientHeight,
     }));
-    assert.equal(highDpi.height, oldSize.height * 2);
+    assert(
+      Math.abs(highDpi.height - oldSize.height * 2) <= 1,
+      "DPR accounts for fractional CSS sizes",
+    );
     assert.equal(highDpi.cssWidth, oldSize.cssWidth);
     assert.equal(highDpi.cssHeight, oldSize.cssHeight);
     assert.equal(

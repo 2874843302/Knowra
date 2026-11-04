@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
-import { GraduationCap } from "lucide-react";
+import { LearningBook3D } from "./learning-book-3d";
 
 const courseLines = ["使用 Knowra 打造你的专属课程"];
 const assistLines = [
@@ -11,7 +11,7 @@ const assistLines = [
   "让复杂的知识，变得清楚一点",
 ];
 
-function HeadingText({ text, branded }) {
+function HeadingText({ text, branded, reserve = false, active = true }) {
   if (!branded) return text;
   const prefix = text.slice(0, 3);
   const name = text.slice(3, 9);
@@ -20,8 +20,12 @@ function HeadingText({ text, branded }) {
       {prefix}
       {name && (
         <span className="home-wordmark">
-          <GraduationCap size={27} aria-hidden="true" />
-          {name}
+          {reserve ? (
+            <span className="learning-book-reserve" />
+          ) : (
+            <LearningBook3D active={active} />
+          )}
+          <span className="home-wordmark-text">{name}</span>
         </span>
       )}
       {text.slice(9)}
@@ -90,12 +94,12 @@ export function ComposerHeading({ mode, active }) {
       <span className="composer-heading-reserve" aria-hidden="true">
         {lines.map((line) => (
           <span key={line}>
-            <HeadingText text={line} branded={mode === "course"} />
+            <HeadingText text={line} branded={mode === "course"} reserve />
           </span>
         ))}
       </span>
       <span className="composer-heading-typed" aria-hidden="true">
-        <HeadingText text={text} branded={mode === "course"} />
+        <HeadingText text={text} branded={mode === "course"} active={active} />
         {!reduced && active && frame.phase === "typing" && (
           <span className="composer-heading-caret" />
         )}

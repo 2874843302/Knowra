@@ -18,6 +18,12 @@
 @import "./blueprint.css" layer(pages);
 @import "./states.css" layer(states);
 @import "./watercolor.css" layer(watercolor);
+@import "./learning-mode.css" layer(watercolor);
+@import "./course-experience.css" layer(watercolor);
+@import "./assistant-tools.css" layer(watercolor);
+@import "./voice-input.css" layer(watercolor);
+@import "./appearance-themes.css" layer(watercolor);
+@import "./ai-chat.css" layer(watercolor);
 
 @theme inline {
   --font-sans: var(--font-sans);

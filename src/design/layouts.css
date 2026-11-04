@@ -1096,7 +1096,7 @@
   max-height: 65dvh;
   overflow: auto;
 }
-.material-preview pre {
+.material-preview > pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font:
@@ -1104,6 +1104,9 @@
     "Microsoft YaHei UI",
     sans-serif;
   color: var(--text-tertiary);
+}
+.material-preview .markdown table {
+  font-size: inherit;
 }
 .practice-row {
   display: flex;

@@ -271,8 +271,15 @@ test("repeated array quiz failures keep precise feedback and expose the final re
   assert.ok(calls.every((c) => c.conversationId === "course-fixture"));
   for (const call of calls.slice(1)) {
     assert.match(call.messages.at(-1).content, /quiz 必须是单个题目对象/);
-    assert.match(call.messages.at(-1).content, /不能是数组或/);
-    assert.match(call.messages.at(-1).content, /"answer":0/);
+    assert.match(call.messages.at(-1).content, /\/units\/0\/lessons\/0\/quiz/);
+    assert.match(call.messages.at(-1).content, /patches/);
+    assert(
+      call.messages.some(
+        (m) =>
+          m.role === "assistant" &&
+          JSON.parse(m.content).units[0].lessons[0].quiz instanceof Array,
+      ),
+    );
   }
 });
 

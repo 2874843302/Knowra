@@ -11,6 +11,7 @@ import {
 import { Link } from "react-router-dom";
 import { accountRequest, useAuth } from "../auth";
 import { Button, Field, Input, Modal } from "../ui";
+import { ProfileAvatar } from "./profile-avatar";
 
 export function AccountSettings() {
   const { user, logout } = useAuth();
@@ -23,6 +24,7 @@ export function AccountSettings() {
         <p>学习内容和 Agent 连接归属于此账号</p>
       </div>
       <div className="settings-fields">
+        <ProfileAvatar />
         <div className="account-identity">
           <span className="account-monogram">{user.name.slice(0, 1)}</span>
           <div>

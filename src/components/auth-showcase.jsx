@@ -90,147 +90,168 @@ export function AuthShowcase() {
         </span>
         <h2>把好奇，变成理解。</h2>
         <p>一门为你规划的课，一块陪你思考的白板。</p>
-        <button
-          type="button"
-          className="identity-motion-toggle"
-          aria-label="线条动效"
-          aria-pressed={motionEnabled}
-          onClick={() => setMotionEnabled((value) => !value)}
-        >
-          {motionEnabled ? <Pause size={12} /> : <Play size={12} />}
-          <span className="sr-only">
-            {motionEnabled ? "暂停动效" : "开启动效"}
-          </span>
-        </button>
       </div>
-      <div
-        className="auth-card-stack"
-        role="button"
-        tabIndex={0}
-        aria-label="展开课程体验卡片"
-        aria-expanded={expanded}
-        data-expanded={expanded}
-        onPointerEnter={(event) => {
-          if (event.pointerType === "mouse") {
-            finishIntro();
-            setHovered(true);
-            setDismissed(false);
-          }
-        }}
-        onPointerLeave={() => {
-          setHovered(false);
-          setDismissed(false);
-        }}
-        onFocus={() => {
-          finishIntro();
-          setFocused(true);
-          setDismissed(false);
-        }}
-        onBlur={() => {
-          setFocused(false);
-          setPinned(false);
-          setDismissed(false);
-        }}
-        onClick={() => {
-          finishIntro();
-          if (expanded) {
-            setPinned(false);
-            setDismissed(true);
-          } else {
-            setPinned(true);
-            setDismissed(false);
-          }
-        }}
-        onKeyDown={(event) => {
-          if (["Enter", " "].includes(event.key)) {
-            event.preventDefault();
-            event.currentTarget.click();
-          } else if (event.key === "Escape") {
-            setPinned(false);
-            setDismissed(true);
-          }
-        }}
-      >
-        <motion.div {...reveal(0, 2)}>
-          <motion.article
-            className="auth-preview-card auth-preview-course"
-            {...card(
-              { x: -28, y: 0, rotate: -4, scale: 1 },
-              { x: -18, y: 86, rotate: -9, scale: 0.96 },
-            )}
+      <div className="auth-showcase-body">
+        <div className="auth-journey-preview">
+          <div
+            className="auth-card-stack"
+            role="button"
+            tabIndex={0}
+            aria-label="展开课程体验卡片"
+            aria-expanded={expanded}
+            data-expanded={expanded}
+            onPointerEnter={(event) => {
+              if (event.pointerType === "mouse") {
+                finishIntro();
+                setHovered(true);
+                setDismissed(false);
+              }
+            }}
+            onPointerLeave={() => {
+              setHovered(false);
+              setDismissed(false);
+            }}
+            onFocus={() => {
+              finishIntro();
+              setFocused(true);
+              setDismissed(false);
+            }}
+            onBlur={() => {
+              setFocused(false);
+              setPinned(false);
+              setDismissed(false);
+            }}
+            onClick={() => {
+              finishIntro();
+              if (expanded) {
+                setPinned(false);
+                setDismissed(true);
+              } else {
+                setPinned(true);
+                setDismissed(false);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (["Enter", " "].includes(event.key)) {
+                event.preventDefault();
+                event.currentTarget.click();
+              } else if (event.key === "Escape") {
+                setPinned(false);
+                setDismissed(true);
+              }
+            }}
           >
-            <div className="auth-preview-label">
-              <BookOpen size={15} /> 为你规划 <span>01</span>
-            </div>
-            <h3>用 Python 处理一份清单</h3>
-            <div className="auth-preview-units">
-              <span>
-                <i>1</i> 把数据放在一起 <Check size={13} />
+            <motion.div {...reveal(0, 2)}>
+              <motion.article
+                className="auth-preview-card auth-preview-course"
+                {...card(
+                  { x: -28, y: 0, rotate: -4, scale: 1 },
+                  { x: -18, y: 86, rotate: -9, scale: 0.96 },
+                )}
+              >
+                <div className="auth-preview-label">
+                  <BookOpen size={15} /> 为你规划 <span>01</span>
+                </div>
+                <h3>用 Python 处理一份清单</h3>
+                <div className="auth-preview-units">
+                  <span>
+                    <i>1</i> 把数据放在一起 <Check size={13} />
+                  </span>
+                  <span>
+                    <i>2</i> 让重复的事情更简单
+                  </span>
+                  <span>
+                    <i>3</i> 换个场景，自己试一试
+                  </span>
+                </div>
+              </motion.article>
+            </motion.div>
+            <motion.div {...reveal(1, 3)}>
+              <motion.article
+                className="auth-preview-card auth-preview-board"
+                {...card(
+                  { x: 0, y: 174, rotate: 3, scale: 1 },
+                  { x: 8, y: 117, rotate: 3, scale: 1 },
+                )}
+              >
+                <div className="auth-preview-label">
+                  <Sparkles size={15} /> 边讲边理解 <span>02</span>
+                </div>
+                <h3>让重复的事情，更简单。</h3>
+                <pre className="auth-preview-code">
+                  <code>{"for item in checklist:\n    print(item)"}</code>
+                </pre>
+                <p className="auth-preview-explanation">
+                  每次取出一项，再做同一件事。
+                </p>
+                <div className="auth-preview-question">
+                  <span>换成你的清单，也能这样做吗？</span>
+                  <span>
+                    <Check size={12} /> 试一试
+                  </span>
+                </div>
+              </motion.article>
+            </motion.div>
+            <motion.div {...reveal(2, 1)}>
+              <motion.article
+                className="auth-preview-card auth-preview-success"
+                {...card(
+                  { x: -17, y: 450, rotate: -2, scale: 1 },
+                  { x: 22, y: 61, rotate: 8, scale: 0.94 },
+                )}
+              >
+                <span className="auth-preview-check">
+                  <CheckCheck size={22} />
+                </span>
+                <div>
+                  <h3>懂了，也能自己做了。</h3>
+                  <p>每一次理解，都成为你的进步。</p>
+                </div>
+              </motion.article>
+            </motion.div>
+          </div>
+          <p className="auth-stack-hint">
+            <Layers3 size={14} />{" "}
+            {expanded
+              ? "从规划到学会，每一步都有陪伴"
+              : "悬停展开，看看学习如何发生"}
+          </p>
+        </div>
+        <section className="auth-identity-stage" aria-label="知序线条展示">
+          <div className="identity-stage-heading">
+            <strong>
+              知序 <span>Knowra</span>
+            </strong>
+            <span>逐行，理解。</span>
+            <button
+              type="button"
+              className="identity-motion-toggle"
+              aria-label="线条动效"
+              aria-pressed={motionEnabled}
+              onClick={() => setMotionEnabled((value) => !value)}
+            >
+              {motionEnabled ? <Pause size={12} /> : <Play size={12} />}
+              <span className="sr-only">
+                {motionEnabled ? "暂停动效" : "开启动效"}
               </span>
-              <span>
-                <i>2</i> 让重复的事情更简单
-              </span>
-              <span>
-                <i>3</i> 换个场景，自己试一试
-              </span>
-            </div>
-          </motion.article>
-        </motion.div>
-        <motion.div {...reveal(1, 3)}>
-          <motion.article
-            className="auth-preview-card auth-preview-board"
-            {...card(
-              { x: 29, y: 174, rotate: 3, scale: 1 },
-              { x: 8, y: 117, rotate: 3, scale: 1 },
-            )}
-          >
-            <div className="auth-preview-label identity-line-label">
-              <strong>
-                知序 <span>Knowra</span>
-              </strong>
-              <span>逐行，理解。</span>
-            </div>
-            <IdentityLineField
-              enabled={motionEnabled && introComplete}
-              suspended={sourceOpen}
-            />
-            <h3>让好奇，慢慢有迹可循。</h3>
-            <p className="identity-line-caption">
-              每一条线，连起一点新的理解。
-            </p>
-          </motion.article>
-        </motion.div>
-        <motion.div {...reveal(2, 1)}>
-          <motion.article
-            className="auth-preview-card auth-preview-success"
-            {...card(
-              { x: -17, y: 440, rotate: -2, scale: 1 },
-              { x: 22, y: 61, rotate: 8, scale: 0.94 },
-            )}
-          >
-            <span className="auth-preview-check">
-              <CheckCheck size={22} />
-            </span>
-            <div>
-              <h3>懂了，也能自己做了。</h3>
-              <p>每一次理解，都成为你的进步。</p>
-            </div>
-          </motion.article>
-        </motion.div>
+            </button>
+          </div>
+          <IdentityLineField
+            enabled={motionEnabled && introComplete}
+            suspended={sourceOpen}
+          />
+          <div className="identity-stage-footer">
+            <p>每一条线，连起一点新的理解。</p>
+            <button
+              type="button"
+              className="identity-source-button"
+              onClick={() => setSourceOpen(true)}
+            >
+              查看线条 <span aria-hidden="true">↗</span>
+            </button>
+          </div>
+        </section>
       </div>
-      <p className="auth-stack-hint">
-        <Layers3 size={14} />{" "}
-        {expanded
-          ? "从规划到学会，每一步都有陪伴"
-          : "悬停展开，看看学习如何发生"}
-        <button
-          type="button"
-          className="identity-source-button"
-          onClick={() => setSourceOpen(true)}
-        >
-          查看线条 <span aria-hidden="true">↗</span>
-        </button>
-      </p>
       <Dialog open={sourceOpen} onOpenChange={setSourceOpen}>
         <DialogContent className="identity-source-dialog">
           <DialogHeader>

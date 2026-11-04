@@ -1,19 +1,27 @@
 import asyncio
 import json
 import shutil
-import sqlite3
+from psycopg.errors import UniqueViolation
 import subprocess
 import time
 from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.config import ROOT
 from app.schemas import AIRequest, WorkspaceState
 from app.services.database import now
 from app.services.provider import Provider
+
+
+class SchoolContext(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+    textbook: str = Field(default="", max_length=1000)
+    chapter: str = Field(default="", max_length=1000)
+    schedule: str = Field(default="", max_length=1000)
+    assessment: str = Field(default="", max_length=1000)
 
 
 class CourseInput(BaseModel):
@@ -25,6 +33,14 @@ class CourseInput(BaseModel):
     depth: Literal["recommended", "overview", "systematic", "deep"] = "recommended"
     scale: str = Field(default="", max_length=1000)
     request_id: UUID | None = None
+    learningMode: Literal["self", "school"] = "self"
+    schoolContext: SchoolContext = Field(default_factory=SchoolContext)
+
+    @model_validator(mode="after")
+    def school_reference_required(self):
+        if self.learningMode == "school" and not (self.context.strip() or self.schoolContext.textbook or self.schoolContext.chapter):
+            raise ValueError("学校同步需要教材／大纲、当前章节或参考资料。")
+        return self
 
     @field_validator("topic")
     @classmethod
@@ -51,11 +67,11 @@ class CourseJobs:
         self.queue = asyncio.Semaphore(1)
         # An interrupted process never silently replays a chargeable request.
         with self.db.connect() as db:
-            db.execute("UPDATE course_jobs SET status='interrupted',error=?,updated_at=? WHERE status IN ('queued','running')", ("服务已重启，已生成的讲次保留，可继续生成。", now()))
+            db.execute("UPDATE course_jobs SET status='interrupted',error=%s,updated_at=%s WHERE status IN ('queued','running')", ("服务已重启，已生成的讲次保留，可继续生成。", now()))
 
     def row(self, user, job_id):
         with self.db.connect() as db:
-            row = db.execute("SELECT * FROM course_jobs WHERE id=? AND user_id=?", (str(job_id), user["id"])).fetchone()
+            row = db.execute("SELECT * FROM course_jobs WHERE id=%s AND user_id=%s", (str(job_id), user["id"])).fetchone()
         if not row:
             raise HTTPException(404, "没有找到这个课程生成任务。")
         return row
@@ -79,9 +95,9 @@ class CourseJobs:
     def create(self, user, payload):
         if payload.request_id:
             with self.db.connect() as db:
-                existing = db.execute("SELECT * FROM course_jobs WHERE user_id=? AND request_id=?", (user["id"], str(payload.request_id))).fetchone()
+                existing = db.execute("SELECT * FROM course_jobs WHERE user_id=%s AND request_id=%s", (user["id"], str(payload.request_id))).fetchone()
             if existing:
-                if json.loads(existing["payload"]) != payload.model_dump(mode="json"):
+                if CourseInput.model_validate(json.loads(existing["payload"])) != payload:
                     raise HTTPException(409, "这个 request_id 已用于另一个课程需求。")
                 return self.view(existing)
         if not user_provider(self.app, user).public()["configured"]:
@@ -90,12 +106,12 @@ class CourseJobs:
             raise HTTPException(503, "课程生成需要 Node.js 22+，请检查服务运行环境。")
         job_id = str(uuid4())
         with self.db.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            if db.execute("SELECT 1 FROM course_jobs WHERE user_id=? AND status IN ('queued','running')", (user["id"],)).fetchone():
+            db.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user["id"],))
+            if db.execute("SELECT 1 FROM course_jobs WHERE user_id=%s AND status IN ('queued','running')", (user["id"],)).fetchone():
                 raise HTTPException(409, "已有课程正在生成，请先查看或取消当前任务。")
             try:
-                db.execute("INSERT INTO course_jobs VALUES (?,?,?,'queued',?,'{}','',NULL,?,?)", (job_id, user["id"], str(payload.request_id) if payload.request_id else None, json.dumps(payload.model_dump(mode="json"), ensure_ascii=False), now(), now()))
-            except sqlite3.IntegrityError:
+                db.execute("INSERT INTO course_jobs VALUES (%s,%s,%s,'queued',%s,'{}','',NULL,%s,%s)", (job_id, user["id"], str(payload.request_id) if payload.request_id else None, json.dumps(payload.model_dump(mode="json"), ensure_ascii=False), now(), now()))
+            except UniqueViolation:
                 raise HTTPException(409, "请求正在创建，请使用同一 request_id 查询任务。")
         self.start(user, job_id)
         return self.view(self.row(user, job_id))
@@ -107,10 +123,37 @@ class CourseJobs:
 
     def set_status(self, job_id, status, error=""):
         with self.db.connect() as db:
-            db.execute("UPDATE course_jobs SET status=?,error=?,updated_at=? WHERE id=? AND status!='completed'", (status, error, now(), str(job_id)))
+            db.execute("UPDATE course_jobs SET status=%s,error=%s,updated_at=%s WHERE id=%s AND status!='completed'", (status, error, now(), str(job_id)))
 
     async def run(self, user, job_id):
         process = None
+        requests = set()
+        request_slots = asyncio.Semaphore(2)
+        provider_error = None
+        provider_id = None
+
+        async def answer_request(event, provider):
+            nonlocal provider_error
+            try:
+                async with request_slots:
+                    payload = AIRequest(messages=event["messages"], kind=event["kind"], conversation_id=event.get("conversationId"), provider_id=provider_id)
+                    result = await provider.complete(payload)
+                reply = {"id": event["id"], "content": result["content"]}
+            except Exception as error:
+                if provider_error is None:
+                    provider_error = error
+                message = error.detail if isinstance(error, HTTPException) and isinstance(error.detail, str) else "模型调用暂未完成，已完成的讲次保留。"
+                reply = {"id": event["id"], "error": message}
+            # Replies carry request IDs, so out-of-order lectures are safe. No
+            # await between write/flush: each JSON line stays intact.
+            try:
+                process.stdin.write(json.dumps(reply, ensure_ascii=False) + "\n")
+                process.stdin.flush()
+            except (BrokenPipeError, OSError):
+                # The reader reports worker exit; cancellation/cleanup owns the
+                # process rather than trying to publish a late model response.
+                return
+
         try:
             async with self.queue:
                 row = self.row(user, job_id)
@@ -118,8 +161,10 @@ class CourseJobs:
                     return
                 self.db.initialize(user["workspace_id"], WorkspaceState(name=user["name"]).model_dump())
                 self.set_status(job_id, "running")
+                provider = user_provider(self.app, user)
+                provider_id = provider.public().get("activeId")
                 process = subprocess.Popen([shutil.which("node"), str(ROOT / "scripts/course-job-worker.mjs")], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", bufsize=1, cwd=ROOT, creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0)
-                process.stdin.write(json.dumps({"id": job_id, "input": json.loads(row["payload"]), "checkpoint": json.loads(row["checkpoint"])}, ensure_ascii=False) + "\n")
+                process.stdin.write(json.dumps({"id": job_id, "input": json.loads(row["payload"]), "checkpoint": json.loads(row["checkpoint"]), "provider": provider.public()}, ensure_ascii=False) + "\n")
                 process.stdin.flush()
                 while True:
                     line = await asyncio.to_thread(process.stdout.readline)
@@ -127,17 +172,18 @@ class CourseJobs:
                         raise HTTPException(500, "生成进程已停止，已完成内容保留，可继续生成。")
                     event = json.loads(line)
                     if event["event"] == "request":
-                        payload = AIRequest(messages=event["messages"], kind=event["kind"], conversation_id=event.get("conversationId"))
-                        result = await user_provider(self.app, user).complete(payload)
-                        process.stdin.write(json.dumps({"id": event["id"], "content": result["content"]}, ensure_ascii=False) + "\n")
-                        process.stdin.flush()
+                        task = asyncio.create_task(answer_request(event, provider))
+                        requests.add(task)
+                        task.add_done_callback(requests.discard)
                     elif event["event"] == "progress":
                         with self.db.connect() as db:
-                            db.execute("UPDATE course_jobs SET checkpoint=?,updated_at=? WHERE id=?", (json.dumps(event["checkpoint"], ensure_ascii=False), now(), job_id))
+                            db.execute("UPDATE course_jobs SET checkpoint=%s,updated_at=%s WHERE id=%s", (json.dumps(event["checkpoint"], ensure_ascii=False), now(), job_id))
                     elif event["event"] == "complete":
                         self.finish(user, job_id, event["course"])
                         return
                     elif event["event"] == "error":
+                        if provider_error is not None:
+                            raise provider_error
                         raise HTTPException(422, str(event["message"])[:1000])
         except asyncio.CancelledError:
             row = self.row(user, job_id)
@@ -148,11 +194,14 @@ class CourseJobs:
             retry = (error.headers or {}).get("Retry-After", "") if isinstance(error, HTTPException) else ""
             if retry.isdigit() and int(retry) > 0:
                 with self.db.connect() as db:
-                    saved = json.loads(db.execute("SELECT checkpoint FROM course_jobs WHERE id=?", (job_id,)).fetchone()[0])
+                    saved = json.loads(db.execute("SELECT checkpoint FROM course_jobs WHERE id=%s", (job_id,)).fetchone()["checkpoint"])
                     saved["retryNotBefore"] = int(time.time()) + int(retry)
-                    db.execute("UPDATE course_jobs SET checkpoint=? WHERE id=?", (json.dumps(saved, ensure_ascii=False), job_id))
+                    db.execute("UPDATE course_jobs SET checkpoint=%s WHERE id=%s", (json.dumps(saved, ensure_ascii=False), job_id))
             self.set_status(job_id, "failed", error.detail if isinstance(error, HTTPException) and isinstance(error.detail, str) else "课程暂未生成完成，已完成的讲次保留，请稍后继续。")
         finally:
+            for task in requests:
+                task.cancel()
+            await asyncio.gather(*requests, return_exceptions=True)
             if process:
                 if process.poll() is None:
                     process.kill()
@@ -162,18 +211,18 @@ class CourseJobs:
 
     def finish(self, user, job_id, course):
         with self.db.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            job = db.execute("SELECT status FROM course_jobs WHERE id=? AND user_id=?", (job_id, user["id"])).fetchone()
+            db.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user["id"],))
+            job = db.execute("SELECT status FROM course_jobs WHERE id=%s AND user_id=%s FOR UPDATE", (job_id, user["id"])).fetchone()
             if job["status"] != "running":
                 return
-            row = db.execute("SELECT * FROM workspaces WHERE id=?", (user["workspace_id"],)).fetchone()
+            row = db.execute("SELECT * FROM workspaces WHERE id=%s FOR UPDATE", (user["workspace_id"],)).fetchone()
             state = json.loads(row["state"])
             state.setdefault("customCourses", []).append(course)
             if course["id"] not in state.setdefault("joined", []):
                 state["joined"].append(course["id"])
             state.setdefault("activities", []).insert(0, {"id": str(uuid4()), "title": f'Agent 创建课程：{course["title"]}', "type": "course", "url": f'/course/{course["id"]}', "date": now()})
-            db.execute("UPDATE workspaces SET state=?,revision=revision+1,updated_at=? WHERE id=?", (self.db.serialize(state), now(), user["workspace_id"]))
-            db.execute("UPDATE course_jobs SET status='completed',course_id=?,error='',updated_at=? WHERE id=?", (course["id"], now(), job_id))
+            db.execute("UPDATE workspaces SET state=%s,revision=revision+1,updated_at=%s WHERE id=%s", (self.db.serialize(state), now(), user["workspace_id"]))
+            db.execute("UPDATE course_jobs SET status='completed',course_id=%s,error='',updated_at=%s WHERE id=%s", (course["id"], now(), job_id))
 
     async def cancel(self, user, job_id):
         row = self.row(user, job_id)
@@ -194,10 +243,10 @@ class CourseJobs:
         if retry > 0:
             raise HTTPException(429, f"模型仍在冷却，请在 {retry} 秒后继续。", headers={"Retry-After": str(retry)})
         with self.db.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            if db.execute("SELECT 1 FROM course_jobs WHERE user_id=? AND status IN ('queued','running')", (user["id"],)).fetchone():
+            db.execute("SELECT id FROM users WHERE id=%s FOR UPDATE", (user["id"],))
+            if db.execute("SELECT 1 FROM course_jobs WHERE user_id=%s AND status IN ('queued','running')", (user["id"],)).fetchone():
                 raise HTTPException(409, "已有课程正在生成。")
-            db.execute("UPDATE course_jobs SET status='queued',error='',updated_at=? WHERE id=?", (now(), str(job_id)))
+            db.execute("UPDATE course_jobs SET status='queued',error='',updated_at=%s WHERE id=%s", (now(), str(job_id)))
         self.start(user, str(job_id))
         return self.view(self.row(user, job_id))
 

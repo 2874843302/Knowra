@@ -1,4 +1,39 @@
-# Local speech synthesis
+# Course workflow framework
+
+Course discovery, generation and validation loops use LangGraph JavaScript
+(`@langchain/langgraph`) and LangChain Core (`@langchain/core`), licensed under MIT:
+https://github.com/langchain-ai/langgraphjs
+https://github.com/langchain-ai/langchainjs
+State schemas use Zod (MIT): https://github.com/colinhacks/zod
+Licenses remain in the installed npm packages.
+
+# Homepage learning icon
+
+The homepage's original book model is rendered with Three.js (MIT):
+https://github.com/mrdoob/three.js
+The model geometry and vector fallback are authored in Knowra. No external
+models, textures or animation files are used. The Three.js license is retained
+in its npm package.
+
+# Local speech
+
+## Local speech recognition
+
+Voice questions use sherpa-onnx (Apache-2.0) and the SenseVoice Small ONNX int8
+conversion published by k2-fsa/sherpa-onnx (2024-07-17):
+https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html
+Original model and its model license:
+https://huggingface.co/FunAudioLLM/SenseVoiceSmall
+https://github.com/FunAudioLLM/SenseVoice
+
+Weights are installed separately; upstream LICENSE and README are retained with
+the model. The conversion's LICENSE references FunASR's licensing terms at
+https://github.com/modelscope/FunASR#license . Model weights have their own terms;
+the application's license does not replace them. The optional ModelScope mirror
+serves identical files, verified by fixed SHA-256 values in scripts/setup-asr.py.
+No external conversion or inference code is downloaded or executed.
+
+## Speech synthesis models
 
 The expressive Mandarin voice uses [Chatterbox](https://github.com/resemble-ai/chatterbox)
 and the [ONNX conversion](https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX)
@@ -22,6 +57,24 @@ locally and retains its LICENSE and README. The pinned archive SHA-256 is
 The bundle also includes [eSpeak NG](https://github.com/espeak-ng/espeak-ng)
 pronunciation data; see its GPL-3.0 license and upstream notices.
 Model weights are downloaded separately, not embedded in the frontend bundle.
+
+# EasyUI Chat and AI Response
+
+`src/components/ui/chat.jsx`, `src/components/ui/ai-response.jsx` and
+`src/lib/response-links.js` adapt EasyUI's compound chat/message/composer API,
+message motion, response states, clipboard lifecycle, safe links, sources disclosure
+and response actions. The adaptation uses Knowra's theme variables, Chinese labels,
+shared controls, GFM renderer, authenticated conversation state and real tool results.
+It adds viewport-scoped scrolling that respects readers scrolling back. No simulated
+model, search activity or streaming timer is included.
+
+Sources: https://www.easyui.site/source/chat.json and
+https://www.easyui.site/source/ai-response.json
+
+Upstream: https://github.com/Surajmaurya1/easyui
+
+The MIT license and Copyright (c) 2026 Suraj Maurya notice below also apply to
+these adaptations.
 
 # EasyUI Calendar and Date Picker
 

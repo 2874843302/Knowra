@@ -160,6 +160,22 @@ adaptation in `src/components/ui/`; do not create parallel native control system
 - `AgentActivityItem`: real per-unit status and expandable generated lesson results.
   Pending items explicitly label their content as planned goals. Expansion uses
   shared buttons, `aria-expanded` and the reduced-motion-aware disclosure primitive.
+- `Chat`, `ChatHeader`, `ChatMessages`, `ChatMessage`, `ChatComposer`: adapted
+  conversation shell, history selection, user messages and expanding composer.
+  Keep voice input, material upload, course scope and model controls as slots.
+  Scroll only the message viewport; respect reading older messages and offer a
+  return-to-latest control. Assistant routes retain the page instance so assigning
+  a new conversation URL cannot discard the next draft.
+- `AIResponse`: shared by immediate help and classroom replies. Keep the compound
+  header/content/sources/actions structure, real generation states, code copy,
+  GFM tables, saved feedback and optional note export. Sources come from actual
+  search results; never simulate tool activity or pretend JSON responses are SSE.
+  Shared colors follow all five themes, with keyboard focus and reduced motion.
+
+`qa:chat` covers copy/export, sources, feedback persistence, generation and stop/error
+states, IME/newline handling, history, independent scrolling, night theme and classroom
+replies at 1440/1024px. `qa:voice`, `qa:assistant-search` and `qa:course-assistant`
+retain coverage for microphone cleanup, tool execution and course context.
 
 `qa:visual` verifies pointer tracking, settled reduced motion and unchanged geometry
 on all three composer surfaces. `qa:activity` verifies button dimensions across

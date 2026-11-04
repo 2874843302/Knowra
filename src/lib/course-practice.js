@@ -1,5 +1,7 @@
 import { normalizeQuestion } from "./questions.js";
 import { parseCourseJSON } from "./course-generation.js";
+import { atContentPath, contentError } from "./generation-validation.js";
+import { learningContext } from "./learning-mode.js";
 
 const task = (
   id,
@@ -275,42 +277,46 @@ export function validatePractice(text, course, unitIndex, existing = []) {
       .map(normalize),
   );
   if (!Array.isArray(value?.items) || !value.items.length)
-    throw new Error("items 中缺少独立练习。");
-  return value.items.map((p) => {
-    if (
-      !["choice", "true_false", "fill", "response", "code"].includes(p?.type) ||
-      ![p.title, p.prompt, p.referenceAnswer].every(textValue) ||
-      !Array.isArray(p.criteria) ||
-      !p.criteria.length ||
-      !p.criteria.every(textValue)
-    )
-      throw new Error(
-        "每题需要有效 type、title、prompt、referenceAnswer 和 criteria。",
-      );
-    if (questions.has(normalize(p.prompt)))
-      throw new Error("题目与已有练习或随堂问答重复，请设计新的应用情境。");
-    questions.add(normalize(p.prompt));
-    const { question, explanation, ...fields } = normalizeQuestion({
-      ...p,
-      question: p.prompt,
-      explanation: p.referenceAnswer,
-    });
-    return {
-      id: crypto.randomUUID(),
-      unitIndex,
-      unitTitle: course.units[unitIndex].title,
-      title: p.title.trim(),
-      prompt: p.prompt.trim(),
-      type: p.type,
-      referenceAnswer: p.referenceAnswer.trim(),
-      criteria: p.criteria.map((s) => s.trim()),
-      minutes:
-        Number.isFinite(p.minutes) && p.minutes > 0
-          ? Math.max(1, Math.round(p.minutes))
-          : 10,
-      ...fields,
-    };
-  });
+    throw contentError("/items", "items 中缺少独立练习。");
+  return value.items.map((p, index) =>
+    atContentPath(`/items/${index}`, () => {
+      if (
+        !["choice", "true_false", "fill", "response", "code"].includes(
+          p?.type,
+        ) ||
+        ![p.title, p.prompt, p.referenceAnswer].every(textValue) ||
+        !Array.isArray(p.criteria) ||
+        !p.criteria.length ||
+        !p.criteria.every(textValue)
+      )
+        throw new Error(
+          "每题需要有效 type、title、prompt、referenceAnswer 和 criteria。",
+        );
+      if (questions.has(normalize(p.prompt)))
+        throw new Error("题目与已有练习或随堂问答重复，请设计新的应用情境。");
+      questions.add(normalize(p.prompt));
+      const { question, explanation, ...fields } = normalizeQuestion({
+        ...p,
+        question: p.prompt,
+        explanation: p.referenceAnswer,
+      });
+      return {
+        id: crypto.randomUUID(),
+        unitIndex,
+        unitTitle: course.units[unitIndex].title,
+        title: p.title.trim(),
+        prompt: p.prompt.trim(),
+        type: p.type,
+        referenceAnswer: p.referenceAnswer.trim(),
+        criteria: p.criteria.map((s) => s.trim()),
+        minutes:
+          Number.isFinite(p.minutes) && p.minutes > 0
+            ? Math.max(1, Math.round(p.minutes))
+            : 10,
+        ...fields,
+      };
+    }),
+  );
 }
 
 export async function requestCoursePractice(
@@ -327,6 +333,7 @@ export async function requestCoursePractice(
       content: JSON.stringify({
         course: course.title,
         description: course.description,
+        ...learningContext(course),
         unit: {
           title: unit.title,
           lessons: unit.lessons.map((l) => ({
@@ -350,30 +357,16 @@ export async function requestCoursePractice(
       }),
     },
   ];
-  let feedback;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    signal?.throwIfAborted();
-    try {
-      const result = await request(
-        feedback
-          ? [
-              ...messages,
-              {
-                role: "user",
-                content: `上次结果未通过校验：${feedback}。请重新返回完整 items JSON。`,
-              },
-            ]
-          : messages,
-        "course_practice",
-        signal,
-      );
-      signal?.throwIfAborted();
-      return validatePractice(result, course, unitIndex, existing);
-    } catch (error) {
-      signal?.throwIfAborted();
-      if (error.name === "AbortError") throw error;
-      feedback = error.message;
-    }
-  }
-  throw new Error("暂时未能生成可用练习，已有练习和作答已保留。请稍后再试。");
+  signal?.throwIfAborted();
+  const { runValidatedGeneration } = await import("./course-agent.js");
+  return runValidatedGeneration({
+    signal,
+    request,
+    messages: messages,
+    kind: "course_practice",
+    repairLabel: "独立练习",
+    validate: (result) => validatePractice(result, course, unitIndex, existing),
+    exhausted: () =>
+      new Error("暂时未能生成可用练习，已有练习和作答已保留。请稍后再试。"),
+  });
 }

@@ -1,3 +1,5 @@
+import { learningContext } from "./learning-mode.js";
+
 // Keep the complete outline and a bounded selection of actual lesson material.
 // Relevance is resolved afresh for every question, including a changed unit.
 export function courseHelpContext(course, unit, question, lessonId = null) {
@@ -22,6 +24,7 @@ export function courseHelpContext(course, unit, question, lessonId = null) {
     .sort((a, b) => b.score - a.score || a.index - b.index);
   return JSON.stringify({
     title: course.title,
+    ...learningContext(course),
     description: course.description,
     currentUnit: unit?.title || null,
     scope: lessonId ? "lesson" : "course",

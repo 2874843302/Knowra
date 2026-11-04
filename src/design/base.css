@@ -15,6 +15,15 @@ html {
   text-size-adjust: 100%;
 }
 
+/* The root already reserves the scrollbar gutter. Radix's additional body
+   margin would reserve it twice and move the page when a modal opens. */
+@supports (scrollbar-gutter: stable) {
+  html:not(:has(.reference-classroom)) body[data-scroll-locked] {
+    margin-right: 0 !important;
+    --removed-body-scroll-bar-size: 0px;
+  }
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);

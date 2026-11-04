@@ -1,0 +1,63 @@
+.school-learning-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 16px 20px 20px;
+  border: 0;
+  color: var(--text-primary);
+}
+.school-learning-fields legend {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+.school-learning-fields > p,
+.generation-mode-context > p {
+  margin: 8px 0 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.school-learning-fields > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+}
+.school-learning-fields label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+}
+.school-learning-fields input {
+  width: 100%;
+  min-height: 42px;
+  background: rgba(250, 248, 245, 0.6);
+  border-radius: 16px;
+}
+.generation-mode-context {
+  margin: 20px 0 28px;
+  padding: 16px 20px;
+  border-radius: 22px;
+  background: linear-gradient(
+    120deg,
+    rgba(133, 205, 202, 0.1),
+    rgba(250, 248, 245, 0.65)
+  );
+}
+.generation-mode-context .school-learning-fields {
+  padding: 16px 0 0;
+}
+.generation-mode-context > p:last-child {
+  margin-bottom: 0;
+}
+.generation-mode-refresh > p {
+  margin: 14px 0 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+@media (max-width: 640px) {
+  .school-learning-fields > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

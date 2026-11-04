@@ -62,10 +62,23 @@
     "qa:auth-mcp": "node scripts/qa-auth-mcp.mjs",
     "qa:auth-motion": "node scripts/qa-auth-motion.mjs",
     "qa:auth-validation": "node scripts/qa-auth-validation.mjs",
-    "qa:auth-line-field": "node scripts/qa-auth-line-field.mjs"
+    "qa:auth-line-field": "node scripts/qa-auth-line-field.mjs",
+    "test:course-agent": "node --test scripts/test-course-agent.mjs scripts/test-generation-repair.mjs",
+    "qa:learning-mode": "node scripts/qa-learning-mode.mjs",
+    "qa:course-experience": "node scripts/qa-course-experience.mjs",
+    "qa:models": "node scripts/qa-model-profiles.mjs",
+    "test:assistant-search": "node --test scripts/test-assistant-agent.mjs",
+    "qa:assistant-search": "node scripts/qa-assistant-search.mjs",
+    "test:voice": "node --test scripts/test-voice-input.mjs",
+    "qa:voice": "node scripts/qa-voice-input.mjs",
+    "test:themes": "node --test scripts/test-appearance-themes.mjs",
+    "qa:themes": "node scripts/qa-appearance-themes.mjs",
+    "qa:chat": "node scripts/qa-easyui-chat.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
+    "@langchain/core": "^1.3.3",
+    "@langchain/langgraph": "^1.6.0",
     "@radix-ui/react-avatar": "^1.3.1",
     "@radix-ui/react-checkbox": "^1.4.1",
     "@radix-ui/react-dialog": "^1.3.1",
@@ -97,7 +110,9 @@
     "rough-notation": "^0.5.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
-    "unified": "^11.0.5"
+    "three": "^0.187.0",
+    "unified": "^11.0.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

@@ -1,0 +1,117 @@
+.assistant-compose-tools > .assistant-web-search {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.assistant-compose-tools > .assistant-web-search[aria-pressed="true"] {
+  color: #4a6fa5;
+  background: color-mix(in srgb, #85cdca 17%, transparent);
+}
+.assistant-tool-turn {
+  margin: -12px 0 28px 40px;
+}
+.assistant-tool-calls {
+  margin: 16px 0 4px;
+  width: min(100%, 660px);
+  text-align: left;
+  font-family: var(--font-sans);
+}
+.assistant-tool-call {
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, #4a6fa5 14%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, #faf8f5 70%, transparent);
+  color: var(--text-secondary);
+}
+.assistant-tool-call summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+.assistant-tool-call summary::-webkit-details-marker {
+  display: none;
+}
+.assistant-tool-call summary > span {
+  flex: 1;
+}
+.assistant-tool-call summary:focus-visible {
+  outline: 2px solid #4a6fa5;
+  outline-offset: 3px;
+  border-radius: 14px;
+}
+.tool-chevron {
+  transition: transform 200ms ease;
+}
+.assistant-tool-call[open] .tool-chevron {
+  transform: rotate(180deg);
+}
+.assistant-tool-detail {
+  padding: 0 14px 14px;
+}
+.tool-query-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.tool-query-list > span {
+  border-radius: 12px;
+  background: color-mix(in srgb, #85cdca 15%, transparent);
+  padding: 5px 10px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.assistant-tool-detail > a {
+  display: block;
+  padding: 10px 0;
+  text-decoration: none;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border-default);
+}
+.assistant-tool-detail > a:hover strong {
+  color: #4a6fa5;
+  text-decoration: underline;
+}
+.assistant-tool-detail > a > strong {
+  display: block;
+  font-size: 13px;
+}
+.assistant-tool-detail > a > span,
+.assistant-tool-detail > small {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.assistant-tool-detail p {
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.assistant-tool-detail .tool-error {
+  color: var(--text-danger, #9b4d4d);
+}
+.tool-spin {
+  animation: tool-spin 1s linear infinite;
+}
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-spin {
+    animation: none;
+  }
+  .tool-chevron {
+    transition: none;
+  }
+}

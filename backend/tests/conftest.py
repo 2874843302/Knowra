@@ -1,7 +1,9 @@
 import sys
 import secrets
+import os
 from pathlib import Path
 from uuid import uuid4
+from dotenv import dotenv_values
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +11,22 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import Settings
 from app.main import create_app
+
+
+@pytest.fixture(autouse=True)
+def isolated_postgres(monkeypatch):
+    """Every test has its own disposable schema on a real PostgreSQL server."""
+    import psycopg
+    from psycopg import sql
+    url = os.environ.get("KNOWRA_TEST_DATABASE_URL") or dotenv_values(Path(__file__).parents[2] / ".env").get("KNOWRA_TEST_DATABASE_URL")
+    if not url:
+        pytest.fail("Set KNOWRA_TEST_DATABASE_URL to a dedicated PostgreSQL test database.")
+    schema = "test_" + uuid4().hex
+    monkeypatch.setenv("KNOWRA_DATABASE_URL", url)
+    monkeypatch.setenv("KNOWRA_DATABASE_SCHEMA", schema)
+    yield
+    with psycopg.connect(url, autocommit=True) as db:
+        db.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))
 
 
 @pytest.fixture

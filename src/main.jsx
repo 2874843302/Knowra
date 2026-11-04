@@ -20,6 +20,9 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import "./design/tailwind.css";
 import { AuthProvider } from "./auth";
 import { CourseJobPage } from "./components/course-job-page";
+import { applyTheme, cachedTheme } from "./lib/appearance-themes";
+
+applyTheme(cachedTheme());
 
 function MainRoutes() {
   return (

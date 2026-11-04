@@ -115,15 +115,33 @@ try {
       viewport: { width, height: 960 },
       reducedMotion: width === 1024 ? "reduce" : "no-preference",
     });
-    await context.addInitScript(
-      ({ workspace, seed }) => {
-        if (!localStorage.getItem("knowra-workspace-id")) {
-          localStorage.setItem("knowra-workspace-id", workspace);
-          localStorage.setItem("knowra-workspace-v1", JSON.stringify(seed));
-        }
-      },
-      { workspace, seed },
+    let serverState = structuredClone(seed),
+      revision = 0;
+    await context.route("**/api/auth/me", (r) =>
+      r.fulfill({
+        json: {
+          user: { id: workspace, name: "学习者", workspaceId: workspace },
+        },
+      }),
     );
+    await context.route("**/api/workspace", (r) => {
+      if (r.request().method() === "PATCH") {
+        for (const op of r.request().postDataJSON().operations) {
+          let target = serverState;
+          for (const part of op.path.slice(0, -1)) target = target[part] ??= {};
+          if (op.op === "remove") delete target[op.path.at(-1)];
+          else target[op.path.at(-1)] = op.value;
+        }
+        revision++;
+      }
+      return r.fulfill({
+        json: {
+          state: serverState,
+          revision,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    });
     await context.route("**/api/provider", (r) =>
       r.fulfill({ json: { configured: true, model: "fixture" } }),
     );
@@ -155,17 +173,12 @@ try {
       errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     const local = () =>
-      page.evaluate(() =>
-        JSON.parse(localStorage.getItem("knowra-workspace-v1")),
+      page.evaluate(
+        (accountId) =>
+          JSON.parse(localStorage.getItem(`knowra-workspace-v1:${accountId}`)),
+        workspace,
       );
-    const remote = async () =>
-      (
-        await (
-          await page.request.get("http://127.0.0.1:5173/api/workspace", {
-            headers: { "X-Workspace-Id": workspace },
-          })
-        ).json()
-      ).state;
+    const remote = async () => structuredClone(serverState);
     await page.goto(`http://127.0.0.1:5173/course/${course.id}`);
     await page.getByRole("button", { name: "AI 编辑", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "编辑课程", exact: true });

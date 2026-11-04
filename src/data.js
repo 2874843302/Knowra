@@ -1,4 +1,5 @@
 import { normalizeQuestion } from "./lib/questions.js";
+import { atContentPath, contentError } from "./lib/generation-validation.js";
 import { normalizeTeachingVisual } from "./lib/teaching-visuals.js";
 import {
   normalizeTeachingDesign,
@@ -424,10 +425,11 @@ export const progressOf = (course, progress) => {
 export const initialState = () => ({
   version: 1,
   name: "学习者",
+  avatar: "",
   joined: ["linear-algebra", "python"],
   customCourses: [],
   courseDrafts: {},
-  appearance: { sidebarCollapsed: false, boardFont: "hand" },
+  appearance: { sidebarCollapsed: false, boardFont: "hand", theme: "watercolor" },
   progress: {},
   materials: {},
   notes: {},
@@ -455,7 +457,12 @@ export function validateOutline(value) {
     !Array.isArray(value.units) ||
     !value.units.length
   )
-    throw new Error("模型返回的课程结构不完整，请重新生成。");
+    throw contentError(
+      typeof value?.title !== "string" || !value.title.trim()
+        ? "/title"
+        : "/units",
+      "模型返回的课程结构不完整，请修复当前字段。",
+    );
   return value.units.map((unit, ui) => {
     if (
       typeof unit?.title !== "string" ||
@@ -463,71 +470,103 @@ export function validateOutline(value) {
       !Array.isArray(unit.lessons) ||
       !unit.lessons.length
     )
-      throw new Error("课程缺少有效的单元或讲次。");
+      throw contentError(`/units/${ui}`, "课程缺少有效的单元或讲次。");
     return {
       title: unit.title.slice(0, 120),
       lessons: unit.lessons.map((l, li) => {
+        const path = `/units/${ui}/lessons/${li}`;
         if (
           typeof l?.title !== "string" ||
           !l.title.trim() ||
           typeof l.content !== "string" ||
           !l.content.trim()
         )
-          throw new Error("课程讲义不完整，请重新生成。");
+          throw contentError(
+            path +
+              (typeof l?.title !== "string" || !l.title.trim()
+                ? "/title"
+                : "/content"),
+            "课程讲义不完整，请修复当前字段。",
+          );
         const q = l.quiz;
         let teaching;
         if (l.teaching != null) {
+          if (typeof l.teaching !== "object" || Array.isArray(l.teaching))
+            throw contentError(
+              path + "/teaching",
+              "teaching 必须是包含 steps 的对象。",
+            );
           const script = l.teaching.steps;
-          if (
-            !Array.isArray(script) ||
-            !script.length ||
-            script.some(
-              (step) =>
-                !step ||
-                ["title", "board", "narration"].some(
-                  (field) =>
-                    typeof step[field] !== "string" ||
-                    !step[field].trim() ||
-                    step[field].length > (field === "title" ? 120 : 6000),
-                ),
-            ) ||
-            script.some((step) => step.board.trim() === step.narration.trim())
-          )
-            throw new Error("板书与讲解脚本不完整，请重新生成。");
+          const scriptPath = path + "/teaching/steps";
+          if (!Array.isArray(script) || !script.length)
+            throw contentError(
+              scriptPath,
+              "板书与讲解脚本不完整，请提供非空步骤数组。",
+            );
+          script.forEach((step, index) => {
+            if (!step || typeof step !== "object")
+              throw contentError(
+                `${scriptPath}/${index}`,
+                "板书与讲解脚本步骤必须是对象。",
+              );
+            for (const field of ["title", "board", "narration"])
+              if (
+                typeof step[field] !== "string" ||
+                !step[field].trim() ||
+                step[field].length > (field === "title" ? 120 : 6000)
+              )
+                throw contentError(
+                  `${scriptPath}/${index}/${field}`,
+                  `板书与讲解脚本的 ${field} 缺失、为空或过长。`,
+                );
+            if (step.board.trim() === step.narration.trim())
+              throw contentError(
+                `${scriptPath}/${index}/narration`,
+                "板书与讲解不能相同，请使用独立的口语解释。",
+              );
+          });
           teaching = {
             source: l.content,
             mode: "script",
             ...(l.teaching.design != null
-              ? { design: normalizeTeachingDesign(l.teaching.design) }
+              ? {
+                  design: atContentPath(path + "/teaching/design", () =>
+                    normalizeTeachingDesign(l.teaching.design),
+                  ),
+                }
               : {}),
             steps: script.map(
-              ({
-                title,
-                board,
-                narration,
-                annotations,
-                checkpoint,
-                visual,
-                role,
-                delivery,
-              }) => ({
-                title: title.trim(),
-                board: board.trim(),
-                narration: narration.trim(),
-                ...normalizeTeachingDirection({
+              (
+                {
+                  title,
+                  board,
                   narration,
+                  annotations,
+                  checkpoint,
                   visual,
                   role,
                   delivery,
-                }),
-                annotations: normalizeBoardAnnotations(annotations),
-                ...(visual != null
-                  ? { visual: normalizeTeachingVisual(visual) }
-                  : {}),
-                ...(checkpoint != null
-                  ? { checkpoint: normalizeCheckpoint(checkpoint) }
-                  : {}),
-              }),
+                },
+                index,
+              ) =>
+                atContentPath(path + `/teaching/steps/${index}`, () => ({
+                  title: title.trim(),
+                  board: board.trim(),
+                  narration: narration.trim(),
+                  ...normalizeTeachingDirection({
+                    narration,
+                    visual,
+                    role,
+                    delivery,
+                  }),
+                  annotations: normalizeBoardAnnotations(annotations),
+                  ...(visual != null
+                    ? { visual: normalizeTeachingVisual(visual) }
+                    : {}),
+                  ...(checkpoint != null
+                    ? { checkpoint: normalizeCheckpoint(checkpoint) }
+                    : {}),
+                })),
             ),
           };
         }
@@ -539,7 +578,11 @@ export function validateOutline(value) {
               ...normalizeQuestion(q, { allowEmptyExplanation: true }),
             };
           } catch (error) {
-            throw new Error(`课程测验格式有误：${error.message}`);
+            throw contentError(
+              path + "/quiz",
+              `课程测验格式有误：${error.message}`,
+              error,
+            );
           }
         }
         return {

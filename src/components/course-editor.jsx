@@ -4,6 +4,7 @@ import {
   ArrowUp,
   BookOpen,
   Check,
+  ImagePlus,
   LoaderCircle,
   Pencil,
   Sparkles,
@@ -11,6 +12,8 @@ import {
   X,
 } from "lucide-react";
 import { useStore, aiRequest } from "../store";
+import { ModelSelector } from "./model-selector";
+import { CourseCoverEditor } from "./course-cover-editor";
 import { CourseEditor as ManualCourseEditor } from "../courseExtras";
 import { Md } from "../pages";
 import { Button, Modal, Textarea } from "../ui";
@@ -30,6 +33,7 @@ import {
 export function CourseEditor({ course, onClose }) {
   const { provider, state, setState, notify } = useStore();
   const [manual, setManual] = useState(false);
+  const [editingCover, setEditingCover] = useState(false);
   const [text, setText] = useState("");
   const [scope, setScope] = useState("course");
   const [busy, setBusy] = useState(false);
@@ -59,7 +63,8 @@ export function CourseEditor({ course, onClose }) {
     const instruction = text.trim();
     try {
       const result = await draftCourseEdit({
-        request: aiRequest,
+        request: (messages, kind, signal, conversationId) =>
+          aiRequest(messages, kind, signal, conversationId, provider.activeId),
         course,
         instruction: history.length
           ? `请结合下面的编辑对话，累计满足用户的修改要求；用户的新要求可以覆盖旧要求。仍然基于原课程产出完整的最终修改预览。\n历史对话：\n${history.map((m) => `${m.role === "user" ? "用户" : "AI"}：${m.content}`).join("\n")}\n用户本次要求：${instruction}`
@@ -102,6 +107,13 @@ export function CourseEditor({ course, onClose }) {
     notify("课程修改已应用，学习记录与笔记已保留");
     onClose();
   };
+  if (editingCover)
+    return (
+      <CourseCoverEditor
+        course={course}
+        onClose={() => setEditingCover(false)}
+      />
+    );
   if (manual) return <ManualCourseEditor course={course} onClose={onClose} />;
   const originalIds = new Set(
     course.units.flatMap((u) => u.lessons).map((l) => l.id),
@@ -199,6 +211,7 @@ export function CourseEditor({ course, onClose }) {
           />
           <div className="course-edit-composer-footer">
             <span>Enter 生成修改 · Shift + Enter 换行</span>
+            <ModelSelector disabled={busy} />
             {busy ? (
               <Button
                 type="button"
@@ -384,16 +397,28 @@ export function CourseEditor({ course, onClose }) {
         )}
       </div>
       <div className="modal-footer course-edit-footer">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          icon={Pencil}
-          disabled={busy}
-          onClick={() => setManual(true)}
-        >
-          手动编辑
-        </Button>
+        <div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            icon={ImagePlus}
+            disabled={busy}
+            onClick={() => setEditingCover(true)}
+          >
+            修改封面
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            icon={Pencil}
+            disabled={busy}
+            onClick={() => setManual(true)}
+          >
+            手动编辑
+          </Button>
+        </div>
         <div>
           <Button
             type="button"

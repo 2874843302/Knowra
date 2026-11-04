@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/course-jobs")
 async def list_jobs(request: Request):
     service = request.app.state.jobs
     with service.db.connect() as db:
-        rows = db.execute("SELECT * FROM course_jobs WHERE user_id=? ORDER BY created_at DESC LIMIT 50", (request.state.user["id"],)).fetchall()
+        rows = db.execute("SELECT * FROM course_jobs WHERE user_id=%s ORDER BY created_at DESC LIMIT 50", (request.state.user["id"],)).fetchall()
     return {"jobs": [service.view(row) for row in rows]}
 
 
