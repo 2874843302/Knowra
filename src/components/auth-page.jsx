@@ -4,6 +4,7 @@ import {
   ArrowRight,
   BookOpen,
   CircleAlert,
+  Copy,
   Eye,
   EyeOff,
   Sprout,
@@ -17,7 +18,7 @@ import {
 import { AuthShowcase } from "./auth-showcase";
 import { motionTransitions } from "../lib/motion";
 import { useAuth, safeReturnTo } from "../auth";
-import { Button, Field, Input } from "../design/primitives";
+import { Button, Field, Input, PasswordInput } from "../design/primitives";
 
 function AuthFieldPanel({ children }) {
   const present = useIsPresent();
@@ -61,6 +62,7 @@ export function AuthPage({ signup = false }) {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [recovering, setRecovering] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [importLocal, setImportLocal] = useState(false);
   const [legacy] = useState(() => {
@@ -76,6 +78,7 @@ export function AuthPage({ signup = false }) {
     setFieldErrors({});
     setPassword("");
     setConfirm("");
+    setRecovering(false);
   }, [signup]);
   const values = { name, email, password, confirm };
   const validateField = (field, data = values) => {
@@ -163,6 +166,8 @@ export function AuthPage({ signup = false }) {
       setBusy(false);
     }
   };
+  if (recovering)
+    return <RecoveryPage next={next} onBack={() => setRecovering(false)} />;
   return (
     <main className="auth-page account-page">
       <Link className="auth-brand" to="/">
@@ -292,6 +297,16 @@ export function AuthPage({ signup = false }) {
                 </Button>
               </div>
             </Field>
+            {!signup && (
+              <button
+                type="button"
+                className="account-forgot"
+                onClick={() => setRecovering(true)}
+                disabled={busy}
+              >
+                忘记密码？
+              </button>
+            )}
             <AuthFieldReveal visible={signup}>
               <Field
                 label="确认密码"
@@ -357,6 +372,156 @@ export function AuthPage({ signup = false }) {
               {signup ? "去登录" : "免费注册"}
             </Link>
           </p>
+        </div>
+        <AuthShowcase />
+      </div>
+    </main>
+  );
+}
+
+function RecoveryPage({ next, onBack }) {
+  const { recover } = useAuth();
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      return setError("请输入完整的邮箱地址。");
+    if (!code.trim()) return setError("请输入注册时保存的恢复码。");
+    if (Array.from(password).length < 8)
+      return setError("新密码至少需要 8 个字符。");
+    if (password !== confirm) return setError("两次输入的密码不一致。");
+    setBusy(true);
+    setError("");
+    try {
+      const value = await recover({
+        email: email.trim(),
+        code: code.trim(),
+        password,
+      });
+      setNewCode(value.recoveryCode);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <main className="auth-page account-page">
+      <Link className="auth-brand" to="/">
+        <BookOpen size={26} />
+        <strong>
+          知序 <span>Knowra</span>
+        </strong>
+      </Link>
+      <div className="auth-content">
+        <div className="auth-form">
+          <nav className="account-mode-switch" aria-label="登录或注册">
+            <Link
+              to={`/login?returnTo=${encodeURIComponent(next)}`}
+              onClick={onBack}
+            >
+              登录
+            </Link>
+            <Link to={`/signup?returnTo=${encodeURIComponent(next)}`}>注册</Link>
+          </nav>
+          <Sprout size={35} strokeWidth={1.2} />
+          <div className="account-form-copy">
+            <h1>{newCode ? "恢复码已更新" : "用恢复码找回账号"}</h1>
+            <p>
+              {newCode
+                ? "旧密码已失效，全部登录会话已退出。请保存新的恢复码。"
+                : "恢复码只在注册时显示一次；输入它并设置新密码。"}
+            </p>
+          </div>
+          {newCode ? (
+            <>
+              <div className="recovery-code-value">{newCode}</div>
+              <Button
+                icon={Copy}
+                onClick={() => navigator.clipboard.writeText(newCode)}
+              >
+                复制新恢复码
+              </Button>
+              <Link
+                className="account-back-login"
+                to={`/login?returnTo=${encodeURIComponent(next)}`}
+              >
+                返回登录 <ArrowRight size={14} />
+              </Link>
+            </>
+          ) : (
+            <form onSubmit={submit} noValidate>
+              <Field label="邮箱" htmlFor="recover-email" required>
+                <Input
+                  id="recover-email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={busy}
+                  placeholder="you@example.com"
+                />
+              </Field>
+              <Field label="恢复码" htmlFor="recover-code" required>
+                <Input
+                  id="recover-code"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  disabled={busy}
+                  placeholder="KNRA-XXXX-XXXX-XXXX"
+                />
+              </Field>
+              <Field label="新密码" htmlFor="recover-password" required>
+                <PasswordInput
+                  id="recover-password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={busy}
+                  placeholder="至少 8 位字符"
+                />
+              </Field>
+              <Field label="确认新密码" htmlFor="recover-confirm" required>
+                <PasswordInput
+                  id="recover-confirm"
+                  autoComplete="new-password"
+                  value={confirm}
+                  onChange={(event) => setConfirm(event.target.value)}
+                  disabled={busy}
+                  placeholder="再次输入新密码"
+                />
+              </Field>
+              {error && (
+                <p className="inline-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                iconRight={ArrowRight}
+                loading={busy}
+                block
+              >
+                {busy ? "正在重置密码…" : "重置密码"}
+              </Button>
+              <button
+                type="button"
+                className="account-forgot"
+                onClick={onBack}
+                disabled={busy}
+              >
+                返回登录
+              </button>
+            </form>
+          )}
         </div>
         <AuthShowcase />
       </div>

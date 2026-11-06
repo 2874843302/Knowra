@@ -42,6 +42,9 @@ export function StoreProvider({ children }) {
   useLayoutEffect(() => { applyTheme(state.appearance?.theme); }, [state.appearance?.theme]);
   const [sync, setSync] = useState({ status: "loading" });
   const [ready, setReady] = useState(false);
+  const [libraryCatalog, setLibraryCatalog] = useState([]);
+  const [libraryCourses, setLibraryCourses] = useState([]);
+  const [libraryMine, setLibraryMine] = useState([]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const server = useRef(null);
@@ -52,6 +55,31 @@ export function StoreProvider({ children }) {
     server.current = value;
     try {
       localStorage.setItem(accountBaseKey, JSON.stringify(value.state));
+    } catch {}
+  };
+  const libraryRequest = async (path, options = {}) => {
+    const response = await fetch(`/api/library${path}`, {
+      credentials: "same-origin",
+      ...options,
+    });
+    if (response.status === 401) {
+      window.dispatchEvent(new Event("knowra-auth-required"));
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "课程库暂时不可用。");
+    return data;
+  };
+  const loadLibrary = async () => {
+    try {
+      const [catalogData, joinedData, mineData] = await Promise.all([
+        libraryRequest("/courses"),
+        libraryRequest("/joined"),
+        libraryRequest("/mine"),
+      ]);
+      if (!alive.current) return;
+      setLibraryCatalog(catalogData.courses || []);
+      setLibraryCourses(joinedData.courses || []);
+      setLibraryMine(mineData.courses || []);
     } catch {}
   };
   const initialize = async () => {
@@ -66,6 +94,7 @@ export function StoreProvider({ children }) {
         ? mergeState(base, stateRef.current, value.state)
         : value.state;
       saveBase(value);
+      await loadLibrary();
       if (alive.current) {
         stateRef.current = { ...initialState(), ...merged };
         setState(stateRef.current);
@@ -148,6 +177,18 @@ export function StoreProvider({ children }) {
       document.removeEventListener("visibilitychange", refresh);
     };
   }, []);
+  useEffect(() => {
+    if (!ready) return;
+    const refresh = () => {
+      if (!document.hidden) loadLibrary();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [ready]);
   const [provider, setProvider] = useState({
     configured: false,
     loading: true,
@@ -191,10 +232,17 @@ export function StoreProvider({ children }) {
   useEffect(() => {
     refreshProvider();
   }, []);
-  const courses = [...catalog, ...state.customCourses].map((course) => ({
-    ...course,
-    ...state.courseEdits?.[course.id],
-  }));
+  const mergedCourses = new Map();
+  for (const course of [...catalog, ...state.customCourses]) {
+    mergedCourses.set(course.id, {
+      ...course,
+      ...state.courseEdits?.[course.id],
+    });
+  }
+  for (const course of libraryCourses) {
+    if (!mergedCourses.has(course.id)) mergedCourses.set(course.id, course);
+  }
+  const courses = [...mergedCourses.values()];
   const activity = (title, type, url) => ({
     id: crypto.randomUUID(),
     title,
@@ -226,6 +274,42 @@ export function StoreProvider({ children }) {
     }));
     notify(saved ? "已取消收藏" : "已收藏课程");
   };
+  const joinLibraryCourse = async (id) => {
+    const course = await libraryRequest(
+      `/courses/${encodeURIComponent(id)}`,
+    );
+    if (!stateRef.current.joined.includes(id)) {
+      setState((s) => ({
+        ...s,
+        joined: s.joined.includes(id) ? s.joined : [...s.joined, id],
+        activities: [
+          activity(`加入课程：${course.title}`, "course", `/course/${id}`),
+          ...s.activities,
+        ],
+      }));
+    }
+    setLibraryCourses((previous) => [
+      ...previous.filter((item) => item.id !== id),
+      course,
+    ]);
+    return course;
+  };
+  const publishCourse = async (id) => {
+    const result = await libraryRequest(
+      `/courses/${encodeURIComponent(id)}/publish`,
+      { method: "POST" },
+    );
+    await loadLibrary();
+    return result;
+  };
+  const unpublishCourse = async (id) => {
+    const result = await libraryRequest(
+      `/courses/${encodeURIComponent(id)}/unpublish`,
+      { method: "POST" },
+    );
+    await loadLibrary();
+    return result;
+  };
   return (
     <Store.Provider
       value={{
@@ -246,6 +330,13 @@ export function StoreProvider({ children }) {
         activity,
         join,
         toggleBookmark,
+        libraryCatalog,
+        libraryCourses,
+        libraryMine,
+        joinLibraryCourse,
+        publishCourse,
+        unpublishCourse,
+        refreshLibrary: loadLibrary,
       }}
     >
       {ready ? (
@@ -295,6 +386,67 @@ export async function aiRequest(
   }
   return data.content;
 }
+export async function aiStream(
+  messages,
+  { kind = "chat", signal, conversationId, providerId, onDelta } = {},
+) {
+  const response = await fetch("/api/ai/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages,
+      kind,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+      ...(providerId ? { provider_id: providerId } : {}),
+    }),
+    signal,
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401)
+      window.dispatchEvent(new Event("knowra-auth-required"));
+    throw new Error(data.error || "请求失败，请重试。");
+  }
+  if (!response.body) throw new Error("当前浏览器不支持流式响应。");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  const consume = (frame) => {
+    for (const line of frame.split(/\r?\n/)) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (!raw) continue;
+      let event;
+      try {
+        event = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      if (event.error) throw new Error(event.error);
+      if (typeof event.delta === "string") {
+        content += event.delta;
+        onDelta?.(content);
+      }
+      if (event.done && typeof event.content === "string") content = event.content;
+    }
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split(/\r?\n\r?\n/);
+      buffer = frames.pop() || "";
+      for (const frame of frames) consume(frame);
+    }
+    if (buffer.trim()) consume(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+  return content;
+}
+
 export function download(name, text, mime = "text/markdown;charset=utf-8") {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
   const a = document.createElement("a");

@@ -119,6 +119,11 @@ export function useModelSpeech({
     service,
     status,
     effective,
+    speakFeedback: (text) => {
+      if (!effective || !active || !player.current || !text?.trim())
+        return Promise.resolve(false);
+      return player.current.playText(text, selectedVoice, rate);
+    },
     elapsed: (previous, delta) =>
       enabled && !service
         ? previous

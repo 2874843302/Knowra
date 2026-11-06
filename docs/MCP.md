@@ -39,13 +39,15 @@
 
 | 工具 | 输入 | 返回 |
 | --- | --- | --- |
-| `create_course` | `topic` 必填；可选 `context`、`source_type`、`goal`、`foundation`、`depth`、`scale`、`request_id` | 任务 ID、状态、`jobUrl`；后台开始生成 |
+| `create_course` | `topic` 必填；可选 `context`、`source_type`、`goal`、`foundation`、`depth`、`scale`、`mode`、`request_id` | 任务 ID、状态、`jobUrl`；后台开始生成 |
 | `get_course_generation` | `job_id` | 进度；完成后返回 `courseUrl`、`learningUrl` |
 | `list_courses` | 无 | 本账号自建课程与学习链接 |
 | `resume_course_generation` | `job_id` | 继续未完成任务，复用已校验讲次 |
 | `cancel_course_generation` | `job_id` | 停止生成并保留已完成讲次 |
 
 `source_type` 为 `topic` / `code` / `commit` / `document`。`context` 最多 60,000 字符；更大的仓库应由 Agent 先挑选相关代码。`depth` 为 `recommended` / `overview` / `systematic` / `deep`，`scale` 可写“约 8 小时，必要内容不要省略”等自由要求，不固定单元或讲次数。
+
+`mode` 为 `auto` / `explain` / `course`。`explain` 用于聚焦讲解一段代码、一次提交或一个具体问题，按用户需求决定讲次，不扩展成完整学科；`course` 用于用户明确要求的系统课程；`auto` 由服务端结合资料与请求判断，代码/提交请求且未明确要求系统课程时优先聚焦讲解。外部 Agent 在讲解代码或提交时应显式传 `mode: "explain"`，并先确认用户是要“讲清这次改动”还是“系统学习”。
 
 建议每次新课程使用一个 UUID `request_id`；相同账号、相同 ID 和相同参数返回同一个任务，避免超时重试重复创建。相同 ID 携带不同参数返回冲突。请保留任务 ID，用进度工具查询，建议间隔 5 秒以上；不要把“尚未完成”当成重新创建的理由。
 

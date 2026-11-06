@@ -21,6 +21,14 @@ def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def recovery_code():
+    return "KNRA-" + "-".join(secrets.token_hex(2).upper() for _ in range(3))
+
+
+def normalize_code(value):
+    return value.strip().upper().replace(" ", "")
+
+
 def password_hash(password, salt=None):
     salt = salt or secrets.token_hex(16)
     return f"pbkdf2_sha256$600000${salt}${hashlib.pbkdf2_hmac('sha256', password.encode(), salt.encode(), 600000).hex()}"
@@ -41,6 +49,18 @@ class Credentials(BaseModel):
         if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
             raise ValueError("Invalid email")
         return value
+
+
+class Recovery(Credentials):
+    code: str = Field(min_length=8, max_length=40)
+
+    @field_validator("code")
+    @classmethod
+    def valid_code(cls, value):
+        normalized = normalize_code(value)
+        if not normalized.startswith("KNRA-") or len(normalized) < 14:
+            raise ValueError("Invalid recovery code")
+        return normalized
 
 
 class Registration(Credentials):
@@ -104,11 +124,16 @@ class Auth:
         self.limit(f"signup:{ip}", 10, 3600)
         user_id, workspace_id = str(uuid4()), str(uuid4())
         hashed = password_hash(payload.password)
+        recovery = recovery_code()
         with self.db.connect() as db:
             db.execute("SELECT pg_advisory_xact_lock(hashtextextended(current_schema() || ':registration', 0))")
             first = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is None
             try:
-                db.execute("INSERT INTO users VALUES (%s,%s,%s,%s,%s,%s,%s)", (user_id, payload.email, payload.name, hashed, workspace_id, now(), int(first)))
+                db.execute(
+                    "INSERT INTO users (id,email,name,password_hash,workspace_id,created_at,is_owner,recovery_hash) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (user_id, payload.email, payload.name, hashed, workspace_id, now(), int(first), digest(normalize_code(recovery))),
+                )
             except UniqueViolation:
                 raise HTTPException(409, "这个邮箱已注册，请直接登录。")
             if payload.import_state:
@@ -123,7 +148,7 @@ class Auth:
                                 material["original"] = False
                 db.execute("INSERT INTO workspaces VALUES (%s,0,%s,%s)", (workspace_id, self.db.serialize(state), now()))
             user = db.execute("SELECT * FROM users WHERE id=%s", (user_id,)).fetchone()
-        return user
+        return user, recovery
 
     def login(self, payload, ip):
         self.limit(f"login-ip:{ip}", 60, 900)
@@ -138,14 +163,43 @@ class Auth:
             db.execute("DELETE FROM auth_limits WHERE key=%s", (key,))
         return user
 
+    def recover(self, payload, ip):
+        self.limit(f"recover-ip:{ip}", 20, 900)
+        key = f"recover:{digest(payload.email)}"
+        self.limit(key, 8)
+        with self.db.connect() as db:
+            user = db.execute("SELECT * FROM users WHERE email=%s", (payload.email,)).fetchone()
+        stored = user["recovery_hash"] if user else None
+        valid = stored is not None and hmac.compare_digest(digest(normalize_code(payload.code)), stored)
+        if not user or not valid:
+            raise HTTPException(401, "邮箱或恢复码不正确。")
+        hashed = password_hash(payload.password)
+        recovery = recovery_code()
+        with self.db.connect() as db:
+            db.execute("UPDATE users SET password_hash=%s, recovery_hash=%s WHERE id=%s",
+                       (hashed, digest(normalize_code(recovery)), user["id"]))
+            db.execute("DELETE FROM sessions WHERE user_id=%s", (user["id"],))
+            db.execute("DELETE FROM auth_limits WHERE key=%s", (key,))
+        return {"ok": True, "recoveryCode": recovery}
+
     def session(self, user, response, secure=False):
         token = secrets.token_urlsafe(32)
         expires = int(time.time()) + SESSION_DAYS * 86400
+        recovery = None
         with self.db.connect() as db:
             db.execute("DELETE FROM sessions WHERE expires_at <= %s", (int(time.time()),))
             db.execute("INSERT INTO sessions VALUES (%s,%s,%s)", (digest(token), user["id"], expires))
+            if user.get("recovery_hash") is None:
+                # Existing accounts created before recovery codes were introduced
+                # receive one on their next sign-in.
+                recovery = recovery_code()
+                db.execute("UPDATE users SET recovery_hash=%s WHERE id=%s AND recovery_hash IS NULL",
+                           (digest(normalize_code(recovery)), user["id"]))
         response.set_cookie(COOKIE, token, max_age=SESSION_DAYS * 86400, httponly=True, secure=secure, samesite="lax", path="/")
-        return {"user": self.public(user), "expiresAt": expires}
+        payload = {"user": self.public(user), "expiresAt": expires}
+        if recovery:
+            payload["recoveryCode"] = recovery
+        return payload
 
     def user(self, request):
         token = request.cookies.get(COOKIE, "")

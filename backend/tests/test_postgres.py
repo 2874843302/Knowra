@@ -34,7 +34,8 @@ def test_real_postgres_transactions_and_concurrent_revisions(tmp_path):
         assert db.get("workspace")["revision"] == 1
         db.migrate()
         with db.connect() as connection:
-            assert connection.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"] == 1
+            migrations = (Path(__file__).parents[1] / "app/migrations").glob("*.sql")
+            assert connection.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"] == len(list(migrations))
     finally:
         db.close()
 

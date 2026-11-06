@@ -1,13 +1,15 @@
+import json
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.schemas import AIRequest, CourseResearchRequest, InitializeWorkspace, ProviderInput, ProviderSelection, UpdateWorkspace
 from app.services.course_research import search_courses
 from app.services.documents import MAX_BYTES, save_material
 from app.services.course_jobs import user_provider
+from app.services.provider import STREAMABLE_KINDS
 
 
 router = APIRouter(prefix="/api")
@@ -93,6 +95,34 @@ def delete_provider(profile_id: str, service=Depends(provider)):
 @router.post("/ai")
 async def ai(payload: AIRequest, request: Request, service=Depends(provider)):
     return await service.complete(payload, is_disconnected=request.is_disconnected)
+
+
+@router.post("/ai/stream")
+async def ai_stream(payload: AIRequest, request: Request, service=Depends(provider)):
+    if payload.kind not in STREAMABLE_KINDS:
+        raise HTTPException(400, "这个生成任务暂不支持流式输出。")
+
+    async def events():
+        content = ""
+        try:
+            async for delta in service.stream(payload, is_disconnected=request.is_disconnected):
+                content += delta
+                yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'done': True, 'content': content}, ensure_ascii=False)}\n\n"
+        except HTTPException as error:
+            detail = error.detail if isinstance(error.detail, str) else "请求失败，请重试。"
+            yield f"data: {json.dumps({'error': detail}, ensure_ascii=False)}\n\n"
+        except Exception:
+            yield f"data: {json.dumps({'error': '模型响应中断，请重试。'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-store", "X-Accel-Buffering": "no",
+    })
+
+
+@router.post("/provider/test")
+async def test_provider(payload: ProviderSelection, service=Depends(provider)):
+    return await service.test(payload.id)
 
 
 @router.post("/course-research")

@@ -67,6 +67,7 @@ export async function requestClassroomAdaptation(
   messages,
   signal,
   validate = validateClassroomAdaptation,
+  onDelta,
 ) {
   signal?.throwIfAborted();
   const { runValidatedGeneration } = await import("./course-agent.js");
@@ -76,7 +77,10 @@ export async function requestClassroomAdaptation(
   ];
   return runValidatedGeneration({
     signal,
-    request,
+    request: onDelta
+      ? (items, kind, innerSignal, conversationId) =>
+          request(items, kind, innerSignal, conversationId, onDelta)
+      : request,
     messages: directedMessages,
     kind: "classroom_adapt",
     repairLabel: "课堂调整",

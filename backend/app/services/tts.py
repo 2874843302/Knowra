@@ -9,6 +9,7 @@ import threading
 import wave
 from pathlib import Path
 from app.services.expressive_tts import ExpressiveWorker, SpeechGenerationError, FILES as EXPRESSIVE_FILES, MODEL as EXPRESSIVE_MODEL, REVISION
+from app.services.tencent_tts import TencentTTS, TencentTTSError
 
 MODEL = "kokoro-int8-multi-lang-v1_1"
 VOICES = [
@@ -21,6 +22,10 @@ VOICES = [
     {"id": "bf_vale", "name": "英语女声 · Vale", "sid": 2},
 ]
 DEFAULT_VOICE = "zf_006"
+TENCENT_VOICES = [
+    {"id": "tencent-female", "name": "腾讯云 · 女声", "engine": "Tencent"},
+    {"id": "tencent-male", "name": "腾讯云 · 男声", "engine": "Tencent"},
+]
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +53,9 @@ class LocalTTS:
         self._expressive_engine = None
         self._lock = threading.RLock()
         self._expressive_lock = threading.RLock()
+        self._tencent_lock = threading.Lock()
         self._cache_lock = threading.Lock()
+        self.tencent = TencentTTS(settings)
 
     def status(self):
         installed = importlib.util.find_spec("sherpa_onnx") is not None
@@ -57,13 +64,27 @@ class LocalTTS:
         ))
         kokoro_ready = installed and model_ready
         expressive_ready = self.expressive_ready()
-        ready = kokoro_ready or expressive_ready
+        tencent_ready = self.tencent.ready()
         available = [v for v in VOICES if (expressive_ready if v["id"] == "friendly-female" else kokoro_ready)]
+        available += TENCENT_VOICES if tencent_ready else []
+        if kokoro_ready:
+            default, model = DEFAULT_VOICE, MODEL
+        elif expressive_ready:
+            default, model = "friendly-female", EXPRESSIVE_MODEL
+        elif tencent_ready:
+            default, model = "tencent-female", "tencent-tts"
+        else:
+            default, model = DEFAULT_VOICE, MODEL
+        if kokoro_ready or expressive_ready:
+            message = "本地语音已就绪" + ("，也可使用腾讯云语音" if tencent_ready else "")
+        elif tencent_ready:
+            message = "腾讯云语音已配置"
+        else:
+            message = "本地语音模型尚未安装，请按项目说明安装。"
         return {
-            "ready": ready, "model": MODEL if kokoro_ready or not expressive_ready else EXPRESSIVE_MODEL,
-            "defaultVoice": DEFAULT_VOICE if kokoro_ready or not expressive_ready else "friendly-female",
+            "ready": bool(available), "model": model, "defaultVoice": default,
             "voices": [{"id": v["id"], "name": v["name"], "engine": v.get("engine", "Kokoro")} for v in available],
-            "message": "本地语音已就绪" if ready else "本地语音模型尚未安装，请按项目说明安装。",
+            "message": message,
         }
 
     def expressive_ready(self):
@@ -121,17 +142,28 @@ class LocalTTS:
 
     def synthesize(self, text: str, voice: str, user_id: str):
         text = re.sub(r"\s+", " ", text).strip()
-        selected = next((v for v in VOICES if v["id"] == voice), None)
-        if selected is None or not text or len(text) > 600:
+        tencent_voice = voice.startswith("tencent-")
+        selected = next((v for v in (TENCENT_VOICES if tencent_voice else VOICES) if v["id"] == voice), None)
+        if (
+            selected is None
+            or not text
+            or len(text) > 600
+            or (tencent_voice and not self.tencent.ready())
+        ):
             raise ValueError("请选择可用音色，并提供 1–600 字的讲解内容。")
         # Separate account directories; cached audio can never be fetched by path.
         owner = hashlib.sha256(user_id.encode()).hexdigest()[:32]
-        model = f"{EXPRESSIVE_MODEL}:{REVISION}:warm-0.6-ref-c7b31d6d" if voice == "friendly-female" else f"{MODEL}:1"
+        if tencent_voice:
+            model = f"tencent:{self.tencent.region}:{self.tencent.voice_types[voice]}:{self.tencent.model_type}:{self.tencent.sample_rate}:{self.tencent.speed}"
+        elif voice == "friendly-female":
+            model = f"{EXPRESSIVE_MODEL}:{REVISION}:warm-0.6-ref-c7b31d6d"
+        else:
+            model = f"{MODEL}:1"
         key = hashlib.sha256(f"{model}\0{voice}\0{text}".encode()).hexdigest()
         folder = self.cache_dir / owner
         target = folder / f"{key}.wav"
-        # ONNX inference is serialized, including duplicate in-flight requests.
-        # FastAPI runs this sync method in its worker pool, outside the event loop.
+        # ONNX inference and cloud requests are serialized, including duplicate
+        # in-flight requests. FastAPI runs this sync method in its worker pool.
         def cached_audio():
             try:
                 data = target.read_bytes()
@@ -145,47 +177,56 @@ class LocalTTS:
         # Playback of completed audio must never wait for unrelated synthesis.
         if (cached := cached_audio()) is not None:
             return cached
-        lock = self._expressive_lock if voice == "friendly-female" else self._lock
+        lock = self._tencent_lock if tencent_voice else self._expressive_lock if voice == "friendly-female" else self._lock
         with lock:
             if (cached := cached_audio()) is not None:
                 return cached
-            try:
-                import numpy as np
-                if voice == "friendly-female":
-                    if not self.expressive_ready():
-                        raise SpeechUnavailable("亲切女声模型尚未安装，请先安装高品质语音模型。")
-                    engine = self._load_expressive()
-                else:
-                    engine = self._load()
-                # Keep individual phoneme inputs short, even for an unpunctuated paragraph.
-                chunks = speech_chunks(text, 60 if voice == "friendly-female" else 100)
-                samples = []
-                for chunk in chunks:
-                    audio = engine.generate(chunk, exaggeration=0.6) if voice == "friendly-female" else engine.generate(chunk, sid=selected["sid"], speed=1.0)
-                    samples.append(np.asarray(audio.samples, dtype=np.float32))
-                pcm = np.concatenate(samples)
-                if not pcm.size or not np.isfinite(pcm).all() or not np.any(pcm):
-                    raise SpeechUnavailable("语音合成没有产生有效音频，请重试。")
-                buffer = io.BytesIO()
-                with wave.open(buffer, "wb") as out:
-                    out.setnchannels(1)
-                    out.setsampwidth(2)
-                    out.setframerate(audio.sample_rate)
-                    out.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
-                data = buffer.getvalue()
-            except (SpeechGenerationError, TimeoutError):
-                if voice != "friendly-female" or not any(v["id"] == "zf_006" for v in self.status()["voices"]):
-                    raise SpeechUnavailable("本句语音暂时无法完成，请稍后重试。")
-                # A failed high-quality utterance must not stop the lesson.
-                # Cache the replacement under its actual voice, so a later
-                # preferred-voice request never mistakes it for that voice.
-                logger.warning("Using local backup female voice after incomplete expressive speech")
-                return self.synthesize(text, "zf_006", user_id)
-            except SpeechUnavailable:
-                raise
-            except Exception as error:
-                logger.exception("Local speech synthesis failed")
-                raise SpeechUnavailable("本地语音合成暂时失败，请重试或关闭朗读继续学习。") from error
+            if tencent_voice:
+                try:
+                    data = self.tencent.synthesize(text, voice)
+                except TencentTTSError as error:
+                    raise SpeechUnavailable(str(error)) from error
+                except Exception as error:
+                    logger.exception("Tencent speech synthesis failed")
+                    raise SpeechUnavailable("腾讯云语音合成暂时失败，请稍后重试。") from error
+            else:
+                try:
+                    import numpy as np
+                    if voice == "friendly-female":
+                        if not self.expressive_ready():
+                            raise SpeechUnavailable("亲切女声模型尚未安装，请先安装高品质语音模型。")
+                        engine = self._load_expressive()
+                    else:
+                        engine = self._load()
+                    # Keep individual phoneme inputs short, even for an unpunctuated paragraph.
+                    chunks = speech_chunks(text, 60 if voice == "friendly-female" else 100)
+                    samples = []
+                    for chunk in chunks:
+                        audio = engine.generate(chunk, exaggeration=0.6) if voice == "friendly-female" else engine.generate(chunk, sid=selected["sid"], speed=1.0)
+                        samples.append(np.asarray(audio.samples, dtype=np.float32))
+                    pcm = np.concatenate(samples)
+                    if not pcm.size or not np.isfinite(pcm).all() or not np.any(pcm):
+                        raise SpeechUnavailable("语音合成没有产生有效音频，请重试。")
+                    buffer = io.BytesIO()
+                    with wave.open(buffer, "wb") as out:
+                        out.setnchannels(1)
+                        out.setsampwidth(2)
+                        out.setframerate(audio.sample_rate)
+                        out.writeframes((np.clip(pcm, -1, 1) * 32767).astype("<i2").tobytes())
+                    data = buffer.getvalue()
+                except (SpeechGenerationError, TimeoutError):
+                    if voice != "friendly-female" or not any(v["id"] == "zf_006" for v in self.status()["voices"]):
+                        raise SpeechUnavailable("本句语音暂时无法完成，请稍后重试。")
+                    # A failed high-quality utterance must not stop the lesson.
+                    # Cache the replacement under its actual voice, so a later
+                    # preferred-voice request never mistakes it for that voice.
+                    logger.warning("Using local backup female voice after incomplete expressive speech")
+                    return self.synthesize(text, "zf_006", user_id)
+                except SpeechUnavailable:
+                    raise
+                except Exception as error:
+                    logger.exception("Local speech synthesis failed")
+                    raise SpeechUnavailable("本地语音合成暂时失败，请重试或关闭朗读继续学习。") from error
             with self._cache_lock:
                 folder.mkdir(parents=True, exist_ok=True)
                 temporary = target.with_suffix(".tmp")

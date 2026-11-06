@@ -15,7 +15,9 @@ from app.services.database import Database
 from app.services.provider import Provider
 from app.services.auth import Auth
 from app.services.course_jobs import CourseJobs
+from app.services.library import Library
 from app.api.course_job_routes import router as jobs_router
+from app.api.library_routes import router as library_router
 from app.api.mcp_server import create_mcp
 from app.api.tts_routes import router as tts_router
 from app.services.tts import LocalTTS
@@ -45,6 +47,7 @@ def create_app(settings=None):
     app.state.tts = LocalTTS(config)
     app.state.asr = LocalASR(config)
     app.state.jobs = CourseJobs(app, config)
+    app.state.library = Library(app.state.database)
     app.state.mcp, mcp_app = create_mcp(app, config)
 
     @app.middleware("http")
@@ -60,7 +63,7 @@ def create_app(settings=None):
         length = request.headers.get("content-length", "0")
         if length.isdigit() and int(length) > 26 * 1024 * 1024:
             return JSONResponse({"error": "请求过大。"}, status_code=413)
-        public_paths = {"/api/health", "/api/auth/register", "/api/auth/login", "/api/auth/me"}
+        public_paths = {"/api/health", "/api/auth/register", "/api/auth/login", "/api/auth/recover", "/api/auth/me"}
         mcp_path = request.url.path == "/api/mcp" or request.url.path.startswith("/api/mcp/")
         if mcp_path:
             try:
@@ -93,6 +96,7 @@ def create_app(settings=None):
     app.include_router(router)
     app.include_router(auth_router)
     app.include_router(jobs_router)
+    app.include_router(library_router)
     app.include_router(tts_router)
     app.include_router(asr_router)
     app.mount("/api/mcp", mcp_app)

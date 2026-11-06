@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Response
 
-from app.services.auth import Credentials, Registration, TokenInput
+from app.services.auth import Credentials, Recovery, Registration, TokenInput
 
 router = APIRouter(prefix="/api/auth")
 
@@ -8,8 +8,10 @@ router = APIRouter(prefix="/api/auth")
 @router.post("/register", status_code=201)
 def register(payload: Registration, request: Request, response: Response):
     service = request.app.state.auth
-    user = service.register(payload, request.client.host if request.client else "local")
-    return service.session(user, response, request.url.scheme == "https")
+    user, recovery = service.register(payload, request.client.host if request.client else "local")
+    result = service.session(user, response, request.url.scheme == "https")
+    result["recoveryCode"] = recovery
+    return result
 
 
 @router.post("/login")
@@ -17,6 +19,11 @@ def login(payload: Credentials, request: Request, response: Response):
     service = request.app.state.auth
     user = service.login(payload, request.client.host if request.client else "local")
     return service.session(user, response, request.url.scheme == "https")
+
+
+@router.post("/recover")
+def recover(payload: Recovery, request: Request):
+    return request.app.state.auth.recover(payload, request.client.host if request.client else "local")
 
 
 @router.get("/me")

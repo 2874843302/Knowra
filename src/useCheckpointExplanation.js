@@ -50,18 +50,30 @@ export function useCheckpointExplanation({
       !evaluateQuestion(playback.current.quiz, selected)
     )
       return;
-    committedAnswer.current = playback.current.id;
+    const stepId = playback.current.id;
+    committedAnswer.current = stepId;
     playback.answer(selected);
+    const feedback = checkpointFallback(playback.current.quiz, selected);
     const prepared = preparedCheckpointExplanation(
       playback.current.quiz,
       selected,
     );
+    // Read the immediate right/wrong copy first. The supplement request starts
+    // as soon as that audio begins, so it loads silently while the learner listens.
+    if (active) {
+      try {
+        await playback.speakFeedback?.(feedback);
+      } catch {
+        // A failed feedback clip must not block the original lesson or the supplement.
+      }
+    }
     if (!active || (!prepared && !provider.configured)) return;
+    const latest = live.current;
+    if (!latest.active || latest.playback.current.id !== stepId) return;
     const controller = new AbortController();
     request.current = controller;
     setExplaining(true);
     const signature = sequence.signature;
-    const stepId = playback.current.id;
     const revisions = state.lessonAdaptations?.[key];
     const revisionVersion = JSON.stringify(revisions || []);
     try {
@@ -85,7 +97,7 @@ export function useCheckpointExplanation({
         id: crypto.randomUUID(),
         afterStepId: stepId,
         baseSignature: sequence.baseSignature,
-        request: checkpointFallback(playback.current.quiz, selected),
+        request: feedback,
         date: new Date().toISOString(),
         source: "checkpoint-answer",
       };

@@ -830,3 +830,114 @@
   color: #4a6fa5;
   font-size: 11px;
 }
+
+.account-forgot {
+  align-self: flex-start;
+  margin: -4px 0 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.account-forgot:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.recovery-code-value {
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px dashed color-mix(in srgb, var(--accent-primary) 38%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  user-select: all;
+}
+.account-back-login {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.assistant-context-setup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.assistant-context-setup [data-slot="select-trigger"] {
+  width: 190px;
+  height: 32px;
+  font-size: 12px;
+}
+.assistant-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, #4a6fa5 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, #4a6fa5 5%, transparent);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.assistant-context-chip button {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.assistant-recent {
+  width: min(100%, 560px);
+  margin-top: 26px;
+  text-align: left;
+}
+.assistant-recent .section-heading {
+  margin-bottom: 6px;
+}
+.assistant-recent .section-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.assistant-recent .section-heading a {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.assistant-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 4px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.assistant-recent-item > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+.assistant-recent-item strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-recent-item small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}

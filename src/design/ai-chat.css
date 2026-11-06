@@ -444,3 +444,197 @@
     animation: none;
   }
 }
+
+/* Assistant workspace: one reading axis, a focused start, and one context control. */
+.assistant-page.easy-chat .easy-chat-header,
+.assistant-page.easy-chat .easy-chat-viewport-wrap,
+.assistant-page.easy-chat .assistant-compose-wrap {
+  width: 100%;
+  max-width: 760px;
+  margin-inline: auto;
+}
+.assistant-page.easy-chat .easy-chat-header {
+  padding: 0 0 16px;
+  border-bottom-color: var(--border-subtle);
+}
+.assistant-page.easy-chat .assistant-messages {
+  padding: 24px 6px 28px;
+}
+.assistant-page.easy-chat .assistant-compose-wrap {
+  padding-top: 12px;
+}
+.assistant-page.easy-chat .assistant-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 0;
+  padding: 24px 0 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.assistant-page.easy-chat .assistant-empty .assistant-welcome-symbol {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 18px;
+  background: var(--surface-selected);
+  color: var(--action-primary);
+  box-shadow: none;
+}
+.assistant-page.easy-chat .assistant-empty h2 {
+  margin: 20px 0 12px;
+  font-size: clamp(24px, 2vw, 30px);
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.assistant-page.easy-chat .assistant-empty > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.8;
+}
+.assistant-page.easy-chat .assistant-empty .assistant-suggestions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  max-width: none;
+  margin: 28px 0 0;
+  gap: 12px;
+}
+.assistant-page.easy-chat .assistant-suggestions > button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  justify-content: start;
+  width: 100%;
+  min-height: 88px;
+  height: auto;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-subtle);
+  box-shadow: none;
+  text-align: left;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+}
+.assistant-page.easy-chat .assistant-suggestions > button:hover {
+  background: var(--surface-selected);
+  border-color: var(--border-default);
+  transform: none;
+}
+.assistant-page.easy-chat .assistant-suggestions > button > strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.assistant-page.easy-chat .assistant-suggestions > button > span {
+  grid-column: 2;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.assistant-page.easy-chat .assistant-suggestions > button > svg:last-child {
+  display: none;
+}
+.assistant-page.easy-chat[data-empty="true"] .easy-chat-viewport-wrap {
+  flex: 0 1 auto;
+  margin-top: auto;
+}
+.assistant-page.easy-chat[data-empty="true"] .assistant-messages {
+  padding: 0;
+}
+.assistant-page.easy-chat[data-empty="true"] .easy-chat-message-list {
+  min-height: 0;
+}
+.assistant-page.easy-chat[data-empty="true"] .assistant-compose-wrap {
+  margin-top: 24px;
+  margin-bottom: auto;
+  padding-top: 0;
+}
+.assistant-page.easy-chat .assistant-compose {
+  padding: 14px;
+  border-radius: 22px;
+  background: var(--surface-default);
+  box-shadow: var(--shadow-sm);
+}
+.assistant-page.easy-chat[data-empty="true"] .assistant-compose textarea {
+  min-height: 88px;
+}
+.assistant-page.easy-chat .assistant-course-context {
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  margin: 0 4px 10px;
+  padding: 8px 10px;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  color: var(--action-primary);
+}
+.assistant-page.easy-chat .assistant-course-context > svg {
+  flex-shrink: 0;
+}
+.assistant-page.easy-chat .assistant-course-context-body {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.assistant-page.easy-chat .assistant-course-context-body > a {
+  flex: 1 1 160px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.assistant-page.easy-chat
+  .assistant-course-context
+  [data-slot="select-trigger"] {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 260px;
+  margin: 0;
+  padding: 4px 6px;
+  color: var(--text-secondary);
+}
+.assistant-page.easy-chat .assistant-context-setup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px 8px;
+  color: var(--text-secondary);
+}
+.assistant-page.easy-chat
+  .assistant-context-setup
+  [data-slot="select-trigger"] {
+  width: auto;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+@media (max-width: 680px) {
+  .assistant-page.easy-chat .assistant-empty .assistant-suggestions {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 20px;
+  }
+  .assistant-page.easy-chat .assistant-suggestions > button {
+    min-height: 60px;
+    padding: 10px 14px;
+  }
+  .assistant-page.easy-chat .assistant-empty > p {
+    font-size: 13px;
+  }
+}

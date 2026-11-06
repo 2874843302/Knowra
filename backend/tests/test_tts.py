@@ -1,4 +1,6 @@
+import base64
 import io
+import json
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
@@ -94,6 +96,98 @@ def test_cached_audio_bypasses_busy_inference_and_engines_are_independent(tmp_pa
             finally:
                 release.set()
             busy.result(timeout=1)
+
+
+def _wav_bytes(frames=120, rate=24000):
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(rate)
+        audio.writeframes(b"\x00\x00" * frames)
+    return buffer.getvalue()
+
+
+def _tencent_response(payload):
+    return SimpleNamespace(status_code=200, json=lambda: payload)
+
+
+def test_tencent_tts_status_synthesis_and_cache(tmp_path, monkeypatch):
+    calls = []
+    audio = _wav_bytes(240)
+
+    def post(url, headers, content, timeout):
+        calls.append((url, headers, json.loads(content)))
+        return _tencent_response({"Response": {"Audio": base64.b64encode(audio).decode()}})
+
+    monkeypatch.setattr("app.services.tencent_tts.httpx.post", post)
+    service = LocalTTS(Settings(
+        knowra_data_dir=tmp_path,
+        tencent_tts_secret_id="secret-id",
+        tencent_tts_secret_key="secret-key",
+        _env_file=None,
+    ))
+    status = service.status()
+    assert {"tencent-female", "tencent-male"} <= {v["id"] for v in status["voices"]}
+    assert status["defaultVoice"] == "tencent-female"
+    first, cached, actual = service.synthesize("你好。", "tencent-female", "account-a")
+    assert (cached, actual) == (False, "tencent-female")
+    assert service.synthesize("你好。", "tencent-female", "account-a") == (first, True, "tencent-female")
+    assert len(calls) == 1
+    url, headers, body = calls[0]
+    assert url == "https://tts.tencentcloudapi.com"
+    assert headers["X-TC-Action"] == "TextToVoice"
+    assert headers["Authorization"].startswith(
+        "TC3-HMAC-SHA256 Credential=secret-id/"
+    )
+    assert body["VoiceType"] == 101001
+    assert body["Codec"] == "wav"
+    with wave.open(io.BytesIO(first), "rb") as result:
+        assert (result.getframerate(), result.getnframes()) == (24000, 240)
+
+
+def test_tencent_tts_splits_and_merges_long_text(tmp_path, monkeypatch):
+    bodies = []
+    audio = _wav_bytes(120)
+
+    def post(url, headers, content, timeout):
+        bodies.append(json.loads(content))
+        return _tencent_response({"Response": {"Audio": base64.b64encode(audio).decode()}})
+
+    monkeypatch.setattr("app.services.tencent_tts.httpx.post", post)
+    service = LocalTTS(Settings(
+        knowra_data_dir=tmp_path,
+        tencent_tts_secret_id="secret-id",
+        tencent_tts_secret_key="secret-key",
+        _env_file=None,
+    ))
+    data, _, _ = service.synthesize("讲解" * 100, "tencent-male", "account-a")
+    assert len(bodies) == 2
+    assert all(body["VoiceType"] == 101004 for body in bodies)
+    with wave.open(io.BytesIO(data), "rb") as result:
+        assert result.getnframes() == 240
+
+
+def test_tencent_tts_auth_error_is_actionable(tmp_path, monkeypatch):
+    def post(url, headers, content, timeout):
+        return _tencent_response({
+            "Response": {
+                "Error": {
+                    "Code": "AuthFailure.SignatureFailure",
+                    "Message": "signature failure",
+                }
+            }
+        })
+
+    monkeypatch.setattr("app.services.tencent_tts.httpx.post", post)
+    service = LocalTTS(Settings(
+        knowra_data_dir=tmp_path,
+        tencent_tts_secret_id="secret-id",
+        tencent_tts_secret_key="secret-key",
+        _env_file=None,
+    ))
+    with pytest.raises(SpeechUnavailable, match="鉴权失败"):
+        service.synthesize("你好。", "tencent-female", "account-a")
 
 
 def test_speech_contract_returns_wav_and_cache_headers(client, monkeypatch):

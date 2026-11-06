@@ -19,6 +19,7 @@ import {
   CircleHelp,
   Clock3,
   Compass,
+  Copy,
   ExternalLink,
   GraduationCap,
   History,
@@ -61,6 +62,11 @@ import {
 import { Toaster } from "./components/ui/sonner";
 import { Sheet, SheetContent, SheetTitle } from "./components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -185,9 +191,9 @@ const navItems = [
   ["/", Home, "首页", "home"],
   ["/courses", GraduationCap, "我的课程", "courses"],
   ["/favorites", Bookmark, "我的收藏"],
-  ["/feed", CalendarDays, "学习动态", "feed"],
+  ["/feed", CalendarDays, "学习计划", "feed"],
   ["/history", History, "历史记录", "history"],
-  ["/marketplace", Compass, "课程集市", "market"],
+  ["/marketplace", Compass, "课程库", "market"],
 ];
 export function Shell({ children }) {
   const reducedMotion = useReducedMotion();
@@ -215,6 +221,7 @@ export function Shell({ children }) {
     retrySync,
   } = useStore();
   const sidebarCollapsed = !!state.appearance?.sidebarCollapsed;
+  const iconRail = !compact && sidebarCollapsed;
   const setSidebarCollapsed = (collapsed) => {
     setState((s) => ({
       ...s,
@@ -241,8 +248,6 @@ export function Shell({ children }) {
     <aside
       id="workspace-navigation"
       className={`sidebar ${mobileOpen ? "open" : ""}`}
-      inert={!compact && sidebarCollapsed ? true : undefined}
-      aria-hidden={!compact && sidebarCollapsed ? true : undefined}
     >
       {compact && <SheetTitle className="sr-only">学习导航</SheetTitle>}
       {compact && (
@@ -266,55 +271,57 @@ export function Shell({ children }) {
         </Link>
         {!compact && (
           <IconButton
-            icon={PanelLeftClose}
-            label="收起侧栏"
+            icon={iconRail ? PanelLeftOpen : PanelLeftClose}
+            label={iconRail ? "展开侧栏" : "收起侧栏"}
+            className={iconRail ? "desktop-menu" : undefined}
             size="sm"
-            aria-expanded="true"
+            aria-expanded={!iconRail}
             aria-controls="workspace-navigation"
-            onClick={() => setSidebarCollapsed(true)}
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
           />
         )}
       </div>
       <nav aria-label="主导航">
         {navItems.map(([url, Icon, name, asset]) => (
-          <NavLink key={url} to={url} end={url === "/"}>
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <motion.span
-                    className="nav-active-surface"
-                    layoutId="sidebar-active"
-                    aria-hidden="true"
-                    transition={
-                      reducedMotion
-                        ? { duration: 0 }
-                        : motionTransitions.indicator
-                    }
-                  />
+          <Tooltip key={url} open={iconRail ? undefined : false}>
+            <TooltipTrigger asChild>
+              <NavLink to={url} end={url === "/"} aria-label={name}>
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <motion.span
+                        className="nav-active-surface"
+                        layoutId="sidebar-active"
+                        aria-hidden="true"
+                        transition={
+                          reducedMotion
+                            ? { duration: 0 }
+                            : motionTransitions.indicator
+                        }
+                      />
+                    )}
+                    {asset ? (
+                      <img
+                        className="navigation-icon"
+                        src={`/reference/${asset}.svg`}
+                        alt=""
+                      />
+                    ) : (
+                      <Icon
+                        className="navigation-icon"
+                        size={20}
+                        strokeWidth={1.7}
+                      />
+                    )}
+                    <span className="nav-label">{name}</span>
+                  </>
                 )}
-                {asset ? (
-                  <img
-                    className="navigation-icon"
-                    src={`/reference/${asset}.svg`}
-                    alt=""
-                  />
-                ) : (
-                  <Icon
-                    className="navigation-icon"
-                    size={20}
-                    strokeWidth={1.7}
-                  />
-                )}
-                <span>{name}</span>
-              </>
-            )}
-          </NavLink>
+              </NavLink>
+            </TooltipTrigger>
+            <TooltipContent side="right">{name}</TooltipContent>
+          </Tooltip>
         ))}
       </nav>
-      <Link className="sidebar-more" to="/settings">
-        <MoreHorizontal size={18} />
-        更多选项
-      </Link>
       <div className="sidebar-label">
         <span>继续学习</span>
         <IconButton
@@ -348,17 +355,26 @@ export function Shell({ children }) {
         {!state.activities.length && <span>还没有学习记录</span>}
       </div>
       <div className="sidebar-bottom">
-        <NavLink to="/settings" className="settings-link">
-          <Settings size={18} />
-          <span>设置与偏好</span>
-        </NavLink>
-        <div className="workspace-dot">
+        <Tooltip open={iconRail ? undefined : false}>
+          <TooltipTrigger asChild>
+            <NavLink
+              to="/settings"
+              className="settings-link"
+              aria-label="设置与偏好"
+            >
+              <Settings size={18} />
+              <span>设置与偏好</span>
+            </NavLink>
+          </TooltipTrigger>
+          <TooltipContent side="right">设置与偏好</TooltipContent>
+        </Tooltip>
+        <div className="workspace-dot" aria-live="polite">
           <i />
           {sync.status === "saving"
             ? "正在保存…"
             : sync.status === "error"
               ? "保存待重试"
-              : "学习空间已保存"}
+              : null}
           <span>v2.0</span>
         </div>
       </div>
@@ -369,7 +385,7 @@ export function Shell({ children }) {
       className="app-shell"
       data-sidebar-collapsed={!compact && sidebarCollapsed}
       style={{
-        "--app-sidebar-width": !compact && sidebarCollapsed ? "0px" : undefined,
+        "--app-sidebar-width": iconRail ? "72px" : undefined,
       }}
     >
       {compact ? (
@@ -450,7 +466,7 @@ export function Header({ onMenu, expanded, compact }) {
   return (
     <header className="app-header">
       <div className="breadcrumb">
-        {(compact || !expanded) && (
+        {compact && (
           <IconButton
             icon={compact ? Menu : PanelLeftOpen}
             label={compact ? "展开导航" : "展开侧栏"}
@@ -578,8 +594,20 @@ export function GlobalOverlays() {
     state,
   } = useStore();
   const [search, setSearch] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
   const navigate = useNavigate();
   const launched = useRef(null);
+  useEffect(() => {
+    const show = () =>
+      setRecoveryCode(sessionStorage.getItem("knowra-recovery-code") || "");
+    show();
+    window.addEventListener("knowra-recovery-code", show);
+    return () => window.removeEventListener("knowra-recovery-code", show);
+  }, []);
+  const dismissRecovery = () => {
+    sessionStorage.removeItem("knowra-recovery-code");
+    setRecoveryCode("");
+  };
   useEffect(() => {
     if (!create || create.method || launched.current === create) return;
     launched.current = create;
@@ -672,6 +700,27 @@ export function GlobalOverlays() {
                   </Button>
                 ))}
             </div>
+          </div>
+        </Modal>
+      )}
+      {recoveryCode && (
+        <Modal title="保存你的恢复码" onClose={dismissRecovery}>
+          <div className="modal-body">
+            <p>
+              忘记密码时，用这个恢复码重置。它只显示这一次，请保存在安全的地方。
+            </p>
+            <div className="recovery-code-value">{recoveryCode}</div>
+          </div>
+          <div className="modal-footer">
+            <Button
+              icon={Copy}
+              onClick={() => navigator.clipboard.writeText(recoveryCode)}
+            >
+              复制恢复码
+            </Button>
+            <Button variant="primary" onClick={dismissRecovery}>
+              我已保存
+            </Button>
           </div>
         </Modal>
       )}

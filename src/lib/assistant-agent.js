@@ -53,6 +53,7 @@ export async function runAssistantAgent({
   webSearch = true,
   onToolCalls,
   onStage,
+  onDelta,
 }) {
   let calls = [];
   const publish = () => onToolCalls?.(structuredClone(calls));
@@ -82,12 +83,15 @@ export async function runAssistantAgent({
           referenceMessages(s.observations),
           "chat",
           signal,
+          undefined,
+          onDelta,
         );
         signal?.throwIfAborted();
         return { decision: { action: "answer", content } };
       }
       const decision = await runValidatedGeneration({
-        request,
+        request: (items, kind, innerSignal, conversationId) =>
+          request(items, kind, innerSignal, conversationId, onDelta),
         messages: referenceMessages(s.observations),
         kind: "chat_agent",
         validate: readTurn,

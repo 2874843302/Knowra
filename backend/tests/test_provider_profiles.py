@@ -120,3 +120,81 @@ def test_inflight_continuation_keeps_its_selected_model(client, monkeypatch):
     assert response.json() == {"content": '{"title":"complete"}'}
     assert captured == [("first.example.test", "Bearer " + key, "first")] * 2
     assert client.get("/api/provider").json()["activeId"] == second
+
+
+def test_ai_stream_endpoint_emits_deltas(client):
+    async def fake_stream(payload, is_disconnected=None):
+        yield "你"
+        yield "好"
+
+    client.app.state.provider.stream = fake_stream
+    with client.stream(
+        "POST",
+        "/api/ai/stream",
+        json={"messages": [{"role": "user", "content": "你好"}], "kind": "chat"},
+    ) as response:
+        assert response.status_code == 200
+        body = "".join(response.iter_text())
+    assert '"delta": "你"' in body
+    assert '"delta": "好"' in body
+    assert '"done": true' in body
+    assert client.post(
+        "/api/ai/stream",
+        json={"messages": [{"role": "user", "content": "你好"}], "kind": "outline"},
+    ).status_code == 400
+
+
+def test_provider_connection_probe(client, monkeypatch):
+    profile_id, _ = add(client, "probe")
+
+    def handler(request):
+        assert request.url.path == "/v1/chat/completions"
+        return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        "app.services.provider.httpx.AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
+    )
+    response = client.post("/api/provider/test", json={"id": profile_id})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+
+def test_provider_stream_parses_openai_sse(tmp_path, monkeypatch):
+    from app.core.config import Settings
+    from app.schemas import AIRequest, Message
+
+    settings = Settings(
+        knowra_data_dir=tmp_path,
+        ai_base_url="https://stream.example.test/v1",
+        ai_model="stream-model",
+        ai_api_key="stream-key",
+        _env_file=None,
+    )
+    provider = Provider(settings)
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=(
+                'data: {"choices":[{"delta":{"content":"你"}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"好"}}]}\n\n'
+                "data: [DONE]\n\n"
+            ).encode(),
+        )
+
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        "app.services.provider.httpx.AsyncClient",
+        lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs),
+    )
+
+    async def collect():
+        request = AIRequest(messages=[Message(role="user", content="你好")], kind="chat")
+        return [chunk async for chunk in provider.stream(request)]
+
+    import asyncio
+
+    assert asyncio.run(collect()) == ["你", "好"]

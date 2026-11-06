@@ -6,7 +6,7 @@ import {
   Sparkles,
   Square,
 } from "lucide-react";
-import { aiRequest, useStore } from "../store";
+import { aiStream, useStore } from "../store";
 import { Button, Modal, Textarea } from "../ui";
 import { Md } from "../pages";
 import { courseHelpContext } from "../lib/course-help";
@@ -23,6 +23,7 @@ export function CourseAssistant({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [streamText, setStreamText] = useState("");
   const controller = useRef(null);
   const input = useRef(null);
   const transcript = useRef(null);
@@ -48,10 +49,11 @@ export function CourseAssistant({
     controller.current = task;
     setBusy(true);
     setError("");
+    setStreamText("");
     // Commit complete exchanges together. A cancelled/failed question remains
     // editable, and cannot leave an unanswered turn in the next AI request.
     try {
-      const reply = await aiRequest(
+      const reply = await aiStream(
         [
           {
             role: "user",
@@ -67,8 +69,11 @@ export function CourseAssistant({
             .map(({ role, content }) => ({ role, content })),
           { role: "user", content: question },
         ],
-        "chat",
-        task.signal,
+        {
+          kind: "chat",
+          signal: task.signal,
+          onDelta: setStreamText,
+        },
       );
       task.signal.throwIfAborted();
       if (typeof reply !== "string" || !reply.trim())
@@ -78,9 +83,11 @@ export function CourseAssistant({
         { role: "user", content: question, unit: unit.title },
         { role: "assistant", content: reply },
       ]);
+      setStreamText("");
       setText("");
       requestAnimationFrame(() => input.current?.focus());
     } catch (error) {
+      setStreamText("");
       if (!task.signal.aborted) setError(error.message);
     } finally {
       if (controller.current === task) {
@@ -160,10 +167,17 @@ export function CourseAssistant({
               <span className="course-help-speaker">你</span>
               <p>{text}</p>
             </article>
-            <span>
-              <LoaderCircle size={16} className="animate-spin" />
-              正在结合课程内容思考…
-            </span>
+            {streamText.trim() ? (
+              <article className="course-help-message is-assistant">
+                <span className="course-help-speaker">AI 学习伙伴</span>
+                <Md>{streamText}</Md>
+              </article>
+            ) : (
+              <span>
+                <LoaderCircle size={16} className="animate-spin" />
+                正在结合课程内容思考…
+              </span>
+            )}
           </div>
         )}
         {error && (

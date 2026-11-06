@@ -180,13 +180,19 @@ export function LessonStage({ playback }) {
             </p>
             {!playback.playing && (
               <Button
-                variant="ghost"
-                size="sm"
-                className="lesson-subtitle-resume"
+                variant={playback.index === 0 ? "primary" : "ghost"}
+                size={playback.index === 0 ? "md" : "sm"}
+                className={`lesson-subtitle-resume ${
+                  playback.index === 0 ? "is-start" : ""
+                }`}
                 icon={Play}
                 onClick={playback.toggle}
               >
-                {playback.finished ? "再听一遍" : "继续讲解"}
+                {playback.finished
+                  ? "再听一遍"
+                  : playback.index === 0
+                    ? "开始讲解"
+                    : "继续讲解"}
               </Button>
             )}
           </>

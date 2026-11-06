@@ -441,6 +441,7 @@ export const initialState = () => ({
   practiceAttempts: {},
   boardPages: {},
   lessonPlayback: {},
+  studyLog: {},
   conversations: [],
   activities: [],
   tasks: [],

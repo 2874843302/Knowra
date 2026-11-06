@@ -171,3 +171,20 @@ test("long sentences are losslessly divided into bounded audio requests without 
   assert.ok(timing.phases.every((p) => p.end - p.start <= 220));
   assert.equal(timing.duration, timing.contentDuration + 800);
 });
+
+test("feedback copy plays as a standalone clip and stops with the lesson", async () => {
+  const { player, audio, count } = fixture();
+  const started = await player.playText(
+    "你选择了“是”，这个理解是对的。继续理解下一步。",
+    "zf_001",
+    1.25,
+  );
+  assert.equal(started, true);
+  assert.equal(audio.paused, false);
+  assert.equal(audio.playbackRate, 1.25);
+  assert.equal(audio.src, "blob:fixture");
+  assert.equal(count(), 1);
+  player.stop();
+  assert.equal(audio.paused, true);
+  player.dispose();
+});

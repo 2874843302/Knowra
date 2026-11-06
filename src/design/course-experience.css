@@ -385,7 +385,9 @@
 }
 .model-settings-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
 }
 .model-settings-form {
@@ -417,4 +419,28 @@
   .course-reference .lesson-title-row > button svg {
     transition: none;
   }
+}
+
+.model-connection {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f2ede4;
+  color: var(--text-tertiary) !important;
+  font-size: 11px !important;
+}
+.model-connection.is-ready {
+  background: #e8f3ec;
+  color: #2f6b46 !important;
+}
+
+.model-picker-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #c9c1b4;
+}
+.model-picker-dot.is-ready {
+  background: #4c9a6a;
 }

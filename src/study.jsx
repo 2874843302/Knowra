@@ -28,6 +28,7 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  EyeOff,
   FileText,
   Flag,
   GraduationCap,
@@ -38,6 +39,7 @@ import {
   Maximize2,
   MessageSquare,
   Minus,
+  Upload,
   PanelLeftClose,
   PanelRightClose,
   PanelRightOpen,
@@ -59,7 +61,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./components/ui/select";
-import { useStore, aiRequest, dateLabel, download, localDate } from "./store";
+import {
+  useStore,
+  aiRequest,
+  aiStream,
+  dateLabel,
+  download,
+  localDate,
+} from "./store";
+import { streamPreview } from "./lib/stream-text";
 import { lessonsOf, progressOf } from "./data";
 import {
   Badge,
@@ -202,7 +212,16 @@ function CourseDescription({ children, id, onOverflowChange }) {
 export function CoursePage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { state, setState, courses, join, notify } = useStore();
+  const {
+    state,
+    setState,
+    courses,
+    join,
+    notify,
+    libraryMine,
+    publishCourse,
+    unpublishCourse,
+  } = useStore();
   const course = courses.find((c) => c.id === id);
   const [tab, setTab] = useState("units");
   const [unitIndex, setUnit] = useState(0);
@@ -213,6 +232,8 @@ export function CoursePage() {
   const [project, setProject] = useState(null);
   const [assessment, setAssessment] = useState(null);
   const [editing, setEditing] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [confirmUnpublish, setConfirmUnpublish] = useState(false);
   const [masteryFilter, setMasteryFilter] = useState("all");
   const [materialSearch, setMaterialSearch] = useState("");
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
@@ -312,20 +333,66 @@ export function CoursePage() {
       <main className="page">
         <Empty
           title="没有找到这门课程"
-          action={<ButtonLink to="/marketplace">返回课程集市</ButtonLink>}
+          action={<ButtonLink to="/marketplace">返回课程库</ButtonLink>}
         />
       </main>
     );
   const lessons = lessonsOf(course);
   const enrolled = state.joined.includes(id);
+  const isOwn = state.customCourses?.some((item) => item.id === id);
+  const publication = libraryMine.find((item) => item.id === id);
+  const isLibrary = Boolean(course.library);
+  const publish = async () => {
+    if (publishing) return;
+    setPublishing(true);
+    try {
+      const result = await publishCourse(id);
+      notify(result.version > 1 ? "课程库内容已更新" : "课程已发布到课程库");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+  const unpublish = async () => {
+    if (publishing) return;
+    setPublishing(true);
+    try {
+      await unpublishCourse(id);
+      setConfirmUnpublish(false);
+      notify("课程已下架，已加入的学习者仍可继续学习");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+  const openCourseAssistant = () => {
+    const chatId = crypto.randomUUID();
+    setState((s) => ({
+      ...s,
+      conversations: [
+        {
+          id: chatId,
+          title: `课程答疑：${course.title}`,
+          messages: [],
+          files: [],
+          draft: "",
+          courseContext: {
+            courseId: course.id,
+            lessonId: null,
+          },
+          date: new Date().toISOString(),
+        },
+        ...s.conversations,
+      ],
+    }));
+    navigate(`/assistant/${chatId}`);
+  };
   const current =
     lessons.find((l) => !state.progress[`${id}/${l.id}`]?.completed) ||
     lessons[0];
   const unit = course.units[unitIndex] || course.units[0];
-  const unitNext =
-    unit.lessons.find(
-      (lesson) => !state.progress[`${id}/${lesson.id}`]?.completed,
-    ) || unit.lessons[0];
   const completedCount = lessons.filter(
     (l) => state.progress[`${id}/${l.id}`]?.completed,
   ).length;
@@ -337,34 +404,112 @@ export function CoursePage() {
     );
   return (
     <main className="page course-detail course-reference">
-      <aside className="course-reference-sidebar">
+      <div className="course-detail-toolbar">
         <div className="course-back-row">
           <Link to={enrolled ? "/courses" : "/marketplace"}>
             <ArrowLeft size={16} />
             退出课程
           </Link>
         </div>
+        <div className="course-toolbar-actions" aria-label="课程操作">
+          {isOwn && (
+            <div className="course-library-publish" aria-label="课程库发布">
+              {publication?.status === "published" ? (
+                <>
+                  <span className="course-publication-status">
+                    已发布 v{publication.version} · 课程库
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Upload}
+                    loading={publishing}
+                    onClick={publish}
+                  >
+                    更新发布
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={EyeOff}
+                    disabled={publishing}
+                    onClick={() => setConfirmUnpublish(true)}
+                  >
+                    下架
+                  </Button>
+                </>
+              ) : publication?.status === "hidden" ? (
+                <>
+                  <span className="course-publication-status is-hidden">
+                    已下架 · 已加入者仍可学习
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Upload}
+                    loading={publishing}
+                    onClick={publish}
+                  >
+                    重新发布
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className="course-publication-status">
+                    默认私有 · 仅自己可见
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Upload}
+                    loading={publishing}
+                    onClick={publish}
+                  >
+                    发布到课程库
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={Sparkles}
+            className="course-toolbar-ai"
+            onClick={openCourseAssistant}
+          >
+            AI 协助
+          </Button>
+        </div>
+      </div>
+      <aside className="course-reference-sidebar">
         <section className="course-identity">
           <div className="course-identity-cover">
             <Cover course={course} showMark={false} />
             <div className="course-cover-actions">
-              <IconButton
-                icon={Pencil}
-                label="编辑课程"
-                onClick={() => setEditing(true)}
-              />
-              <IconButton
-                icon={Share2}
-                label="复制课程链接"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(location.href);
-                    notify("本机课程链接已复制");
-                  } catch {
-                    notify("浏览器未允许复制，请从地址栏获取链接");
-                  }
-                }}
-              />
+              {isOwn && (
+                <IconButton
+                  icon={Pencil}
+                  label="编辑课程"
+                  onClick={() => setEditing(true)}
+                />
+              )}
+              {!["localhost", "127.0.0.1", "::1", "[::1]"].includes(
+                window.location.hostname,
+              ) && (
+                <IconButton
+                  icon={Share2}
+                  label="复制课程链接"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(location.href);
+                      notify("课程链接已复制");
+                    } catch {
+                      notify("浏览器未允许复制，请从地址栏获取链接");
+                    }
+                  }}
+                />
+              )}
               <IconButton
                 icon={ArrowDownToLine}
                 label="导出课程讲义"
@@ -385,6 +530,17 @@ export function CoursePage() {
               </span>
               <CourseBookmarkButton course={course} compact={false} />
             </div>
+            {course.library && (
+              <div className="course-library-source">
+                <Badge>课程库</Badge>
+                <span>
+                  {course.library.authorName} · 版本 v{course.library.version}
+                  {course.library.hidden
+                    ? " · 作者已下架，你仍可学习已加入版本"
+                    : ""}
+                </span>
+              </div>
+            )}
             <h1>{course.title}</h1>
             <div className="course-summary">
               <CourseDescription
@@ -439,60 +595,23 @@ export function CoursePage() {
                   </Button>
                 )}
               </div>
-              <div className="course-ai-actions" aria-label="课程 AI 工具">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={Pencil}
-                  onClick={() => setEditing(true)}
-                  aria-haspopup="dialog"
-                >
-                  AI 编辑
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={Sparkles}
-                  onClick={() => {
-                    const chatId = crypto.randomUUID();
-                    setState((s) => ({
-                      ...s,
-                      conversations: [
-                        {
-                          id: chatId,
-                          title: `课程答疑：${course.title}`,
-                          messages: [],
-                          files: [],
-                          draft: "",
-                          courseContext: {
-                            courseId: course.id,
-                            lessonId: null,
-                          },
-                          date: new Date().toISOString(),
-                        },
-                        ...s.conversations,
-                      ],
-                    }));
-                    navigate(`/assistant/${chatId}`);
-                  }}
-                >
-                  AI 协助
-                </Button>
-              </div>
             </div>
           </div>
         </section>
         <div className="course-viewbar">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="course-dashboard-link"
-            aria-label="面板"
-            aria-pressed={tab === "dashboard"}
-            onClick={() => setTab("dashboard")}
-          >
-            <LayoutPanelLeft size={15} />
-          </Button>
+          <div className="course-viewbar-top">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="course-dashboard-link"
+              aria-label="课程概览"
+              title="课程概览"
+              aria-pressed={tab === "dashboard"}
+              onClick={() => setTab("dashboard")}
+            >
+              <LayoutPanelLeft size={15} />
+            </Button>
+          </div>
           <Tabs
             value={tab}
             onValueChange={setTab}
@@ -604,25 +723,7 @@ export function CoursePage() {
                   onFilterChange={setMasteryFilter}
                   onProject={() => setProject(unitIndex)}
                   onExam={() => setAssessment(unit)}
-                >
-                  {unitNext && (
-                    <div className="next-lesson-strip">
-                      <Play size={13} fill="currentColor" />
-                      <span>
-                        {state.progress[`${id}/${unitNext.id}`]?.completed
-                          ? "回顾本单元"
-                          : "下一步"}
-                        ：{unitNext.title}
-                      </span>
-                      <Link
-                        to={`/learn/${id}/${unitNext.id}`}
-                        aria-label={`学习${unitNext.title}`}
-                      >
-                        <ArrowRight size={16} />
-                      </Link>
-                    </div>
-                  )}
-                </LearningPath>
+                ></LearningPath>
                 <div className="course-timeline">
                   <div className="lesson-list">
                     {unit.lessons.map((l, i) => {
@@ -1045,6 +1146,31 @@ export function CoursePage() {
           </div>
         </Modal>
       )}
+      {confirmUnpublish && (
+        <Modal
+          title="从课程库下架？"
+          onClose={() => {
+            if (!publishing) setConfirmUnpublish(false);
+          }}
+        >
+          <div className="modal-body">
+            <p>
+              下架后课程会从课程库搜索结果中移除，其他人不能再加入；已经加入的学习者仍可继续学习。
+            </p>
+          </div>
+          <div className="modal-footer">
+            <Button
+              disabled={publishing}
+              onClick={() => setConfirmUnpublish(false)}
+            >
+              取消
+            </Button>
+            <Button variant="danger" loading={publishing} onClick={unpublish}>
+              确认下架
+            </Button>
+          </div>
+        </Modal>
+      )}
     </main>
   );
 }
@@ -1070,6 +1196,7 @@ function Tutor({
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [streamReply, setStreamReply] = useState("");
   const controller = useRef(null);
   const adapt = useRef(onAdapt);
   adapt.current = onAdapt;
@@ -1115,6 +1242,7 @@ function Tutor({
     setMessages(next);
     setBusy(true);
     setError("");
+    setStreamReply("");
     controller.current = new AbortController();
     onInteract();
     try {
@@ -1124,7 +1252,14 @@ function Tutor({
         .slice(0, 20000);
       const result = await requestClassroomAdaptation(
         (messages, kind, signal, conversationId) =>
-          aiRequest(messages, kind, signal, conversationId, provider.activeId),
+          aiStream(messages, {
+            kind,
+            signal,
+            conversationId,
+            providerId: provider.activeId,
+            onDelta: (raw) =>
+              setStreamReply(streamPreview(raw, "classroom_adapt")),
+          }),
         [
           {
             role: "user",
@@ -1150,12 +1285,14 @@ function Tutor({
         },
       ]);
     } catch (e) {
+      setStreamReply("");
       if (e.name !== "AbortError") {
         setError(e.message);
         setText(next.at(-1).content);
         setMessages(next.slice(0, -1));
       }
     } finally {
+      setStreamReply("");
       setBusy(false);
     }
   };
@@ -1345,7 +1482,8 @@ function Tutor({
               )}
               {busy && (
                 <AIResponse
-                  status="generating"
+                  status={streamReply.trim() ? "streaming" : "generating"}
+                  content={streamReply}
                   statusLabel="正在梳理问题与调整板书…"
                   className="tutor-response-pending"
                 >
@@ -1435,6 +1573,7 @@ export function LessonPage() {
   const tutorToggle = useRef(null);
   const supportPanel = useRef(null);
   const [tab, setTab] = useState("board");
+  const [confirmComplete, setConfirmComplete] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [mobileTab, setMobileTab] = useState("board");
   const [teaching, setTeaching] = useState(null);
@@ -1794,7 +1933,11 @@ export function LessonPage() {
               </ButtonLink>
             )}
             {!done ? (
-              <Button variant="primary" icon={Check} onClick={complete}>
+              <Button
+                variant="primary"
+                icon={Check}
+                onClick={() => setConfirmComplete(true)}
+              >
                 标记为已学完
               </Button>
             ) : index < lessons.length - 1 ? (
@@ -1816,6 +1959,32 @@ export function LessonPage() {
             )}
           </div>
         </footer>
+        {confirmComplete && (
+          <Modal
+            title="标记为已学完？"
+            onClose={() => setConfirmComplete(false)}
+          >
+            <div className="modal-body">
+              <p>
+                确认已经学完本讲？理解题、练习和笔记记录都会保留，但完成状态会写入学习进度。
+              </p>
+            </div>
+            <div className="modal-footer">
+              <Button onClick={() => setConfirmComplete(false)}>
+                再学一会
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setConfirmComplete(false);
+                  complete();
+                }}
+              >
+                确认完成
+              </Button>
+            </div>
+          </Modal>
+        )}
       </main>
       <aside
         className="class-tutor"

@@ -68,7 +68,7 @@ export function ChatMessages({ children, className }) {
   useEffect(() => {
     const node = viewport.current;
     const observer = new ResizeObserver(() => {
-      if (follow.current) node.scrollTop = node.scrollHeight;
+      if (follow.current && messages.length) node.scrollTop = node.scrollHeight;
       measured.current = {
         height: node.clientHeight,
         scrollHeight: node.scrollHeight,
@@ -78,9 +78,9 @@ export function ChatMessages({ children, className }) {
     observer.observe(content.current);
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [messages.length]);
   useEffect(() => {
-    if (follow.current)
+    if (follow.current && messages.length)
       viewport.current.scrollTop = viewport.current.scrollHeight;
   }, [messages.length, isGenerating]);
   const latest = () => {

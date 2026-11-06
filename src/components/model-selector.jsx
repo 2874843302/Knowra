@@ -47,9 +47,20 @@ export function ModelSelector({
           type="button"
           className={`model-picker ${className}`}
           disabled={disabled || switching || provider.loading}
-          aria-label={`切换模型，当前：${selected.name || selected.model}`}
+          aria-label={`切换模型，当前：${selected.name || selected.model}${
+            selected.configured ? "" : "（未配置密钥）"
+          }`}
           aria-busy={switching}
+          title={
+            selected.configured
+              ? "模型已配置密钥，可发送请求"
+              : "这个模型缺少密钥，暂不可用"
+          }
         >
+          <i
+            className={`model-picker-dot ${selected.configured ? "is-ready" : ""}`}
+            aria-hidden="true"
+          />
           <span className="model-picker-name">
             {selected.name || selected.model}
           </span>
@@ -65,7 +76,10 @@ export function ModelSelector({
           >
             <span className="model-picker-option">
               <strong>{profile.name || profile.model}</strong>
-              <small>{profile.model}</small>
+              <small>
+                {profile.model}
+                {profile.configured ? "" : " · 缺少密钥"}
+              </small>
             </span>
             {selected.id === profile.id && (
               <Check size={15} aria-label="当前模型" />

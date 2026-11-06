@@ -56,6 +56,20 @@ def test_real_login_cookie_logout_and_expiry(tmp_path):
         assert client.get("/api/auth/me").status_code == 401
 
 
+def test_recovery_code_rotates_password_and_sessions(tmp_path):
+    with TestClient(create_app(Settings(knowra_data_dir=tmp_path, _env_file=None))) as client:
+        credentials, response = signup(client)
+        code = response.json()["recoveryCode"]
+        assert code.startswith("KNRA-")
+        new_password = secrets.token_urlsafe(20)
+        recovered = client.post("/api/auth/recover", json={**credentials, "code": code, "password": new_password})
+        assert recovered.status_code == 200
+        assert recovered.json()["recoveryCode"] != code
+        assert client.get("/api/auth/me").status_code == 401
+        assert client.post("/api/auth/login", json={**credentials, "password": new_password}).status_code == 200
+        assert client.post("/api/auth/recover", json={**credentials, "code": code, "password": new_password}).status_code == 401
+
+
 def test_https_cookie_and_validation(tmp_path):
     with TestClient(create_app(Settings(knowra_data_dir=tmp_path, _env_file=None)), base_url="https://testserver") as client:
         _, response = signup(client)

@@ -75,7 +75,9 @@ import {
 } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useStore, aiRequest, localDate, dateLabel, download } from "./store";
+import { useStore, aiRequest, aiStream, localDate, dateLabel, download } from "./store";
+import { streamPreview } from "./lib/stream-text";
+import { buildLearningOverview } from "./lib/learning-overview";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Checkbox } from "./components/ui/checkbox";
 import {
@@ -367,15 +369,141 @@ export function Composer({ mode, setMode }) {
 
 export function HomePage() {
   const [mode, setMode] = useState("course");
+  const { state, setState, courses, notify, provider } = useStore();
+  const overview = buildLearningOverview(state, courses, localDate());
+  const markReviewed = (entry) => {
+    const at = new Date().toISOString();
+    setState((s) => {
+      const current = s.progress[entry.key] || {};
+      return {
+        ...s,
+        progress: {
+          ...s.progress,
+          [entry.key]: {
+            ...current,
+            reviewCount: (current.reviewCount || 0) + 1,
+            reviewedAt: at,
+          },
+        },
+        activities: [
+          {
+            id: crypto.randomUUID(),
+            title: `复习完成：${entry.lesson.title}`,
+            type: "course",
+            url: `/learn/${entry.course.id}/${entry.lesson.id}`,
+            date: at,
+          },
+          ...s.activities,
+        ],
+      };
+    });
+    notify("已记录这次复习");
+  };
   return (
     <main className="page home-page">
+      <section className="home-today" aria-label="今日学习">
+        {overview.current && overview.nextLesson ? (
+          <article className="today-resume">
+            <Link
+              className="today-cover"
+              to={`/course/${overview.current.id}`}
+              aria-label={`查看${overview.current.title}`}
+            >
+              <Cover course={overview.current} />
+            </Link>
+            <div className="today-resume-copy">
+              <span className="date-caption">继续学习</span>
+              <Link
+                className="today-title"
+                to={`/course/${overview.current.id}`}
+              >
+                {overview.current.title}
+              </Link>
+              <p>
+                下一讲：{overview.nextLesson.title}
+                <span className="today-inline-meta">
+                  {overview.progress}% 完成 · 剩 {overview.remaining} 讲 · 约{" "}
+                  {overview.minutesRemaining} 分钟
+                </span>
+              </p>
+              <Progress value={overview.progress} />
+            </div>
+            <ButtonLink
+              variant="primary"
+              size="sm"
+              to={`/learn/${overview.current.id}/${overview.nextLesson.id}`}
+              iconRight={ArrowRight}
+            >
+              {overview.progress ? "继续" : "开始"}
+            </ButtonLink>
+          </article>
+        ) : (
+          <EmptyState
+            icon={BookOpen}
+            title="还没有进行中的课程"
+            description="从课程库挑一门，或让 AI 为你规划一条学习路线。"
+            action={<ButtonLink to="/marketplace">去课程库</ButtonLink>}
+          />
+        )}
+        <div className="today-side">
+          <section className="today-goal">
+            <div>
+              <span className="date-caption">今日目标</span>
+              <strong>
+                {overview.studiedMinutes} / {overview.goal} 分钟
+              </strong>
+            </div>
+            <Progress value={overview.goalPercent} />
+            {!overview.studiedMinutes && (
+              <p className="today-goal-hint">进入课堂后自动累计学习时长</p>
+            )}
+          </section>
+          <section className="today-reviews">
+            <div className="today-reviews-heading">
+              <span className="date-caption">今日复习</span>
+              <strong>{overview.reviews.length}</strong>
+            </div>
+            {overview.reviews.length ? (
+              <div className="today-review-next">
+                <Link
+                  to={`/learn/${overview.reviews[0].course.id}/${overview.reviews[0].lesson.id}`}
+                >
+                  <small>{overview.reviews[0].course.title}</small>
+                  <span>{overview.reviews[0].lesson.title}</span>
+                </Link>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => markReviewed(overview.reviews[0])}
+                >
+                  完成
+                </Button>
+              </div>
+            ) : (
+              <p>暂无到期复习</p>
+            )}
+          </section>
+        </div>
+      </section>
+      {!provider.loading && !provider.configured && (
+        <section className="model-onboarding" role="status">
+          <Sparkles size={18} />
+          <p>
+            <strong>还没有连接 AI 模型。</strong>
+            AI 课程生成、即时协助和课堂补讲需要模型才能使用。
+          </p>
+          <ButtonLink to="/settings#ai" size="sm">
+            连接模型
+          </ButtonLink>
+        </section>
+      )}
       <section className="home-create" aria-label="打造课程">
         <LearningSketch />
         <Composer mode={mode} setMode={setMode} />
       </section>
       <section className="recommend-section">
         <div className="section-heading">
-          <h2>课程集市</h2>
+          <h2>课程库</h2>
           <Link to="/marketplace">
             查看全部 <ArrowRight size={14} />
           </Link>
@@ -546,7 +674,7 @@ export function CoursesPage() {
                   </Button>
                 ) : (
                   <ButtonLink to="/marketplace" variant="primary">
-                    去课程集市
+                    去课程库
                   </ButtonLink>
                 )
               }
@@ -569,7 +697,7 @@ export function CoursesPage() {
           </section>
           <section className="rail-market">
             <div className="section-heading">
-              <h2>课程集市</h2>
+              <h2>课程库</h2>
               <Link to="/marketplace">
                 查看更多 <ArrowRight size={12} />
               </Link>
@@ -696,8 +824,71 @@ export function FavoritesPage() {
   );
 }
 
+function LibraryCourseCard({ entry }) {
+  const { state, libraryCourses, joinLibraryCourse, notify } = useStore();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const joined = state.joined.includes(entry.id);
+  const course = libraryCourses.find((item) => item.id === entry.id);
+  const join = async () => {
+    setBusy(true);
+    try {
+      await joinLibraryCourse(entry.id);
+      notify("已加入课程库课程");
+      navigate(`/course/${entry.id}`);
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <article className="library-course-card">
+      <Link
+        className="library-course-cover"
+        to={joined && course ? `/course/${entry.id}` : undefined}
+        aria-label={entry.title}
+      >
+        <Cover course={entry} showMark={false} />
+      </Link>
+      <div className="library-course-body">
+        <span className="library-course-author">
+          {entry.authorName} · {entry.category}
+          {entry.mine ? " · 我发布的" : ""}
+        </span>
+        <h3>{entry.title}</h3>
+        <p>{entry.description}</p>
+        <div className="library-course-meta">
+          {entry.lessonCount} 讲 · {entry.minutes} 分钟 ·{" "}
+          {entry.version > 1 ? `已更新到 v${entry.version}` : "新发布"}
+        </div>
+      </div>
+      <div className="library-course-actions">
+        {entry.mine ? (
+          <ButtonLink size="sm" to={`/course/${entry.id}`}>
+            管理
+          </ButtonLink>
+        ) : joined ? (
+          <ButtonLink size="sm" to={`/course/${entry.id}`}>
+            继续学习
+          </ButtonLink>
+        ) : (
+          <Button
+            size="sm"
+            variant="primary"
+            loading={busy}
+            onClick={join}
+          >
+            加入学习
+          </Button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export function MarketplacePage() {
-  const { courses } = useStore();
+  const { courses, libraryCatalog } = useStore();
   const navigate = useNavigate();
   const [category, setCategory] = useState("全部");
   const [search, setSearch] = useState("");
@@ -705,14 +896,22 @@ export function MarketplacePage() {
   const [sort, setSort] = useState("recommended");
   const categories = [
     "全部",
-    ...new Set(catalog.map((c) => c.category)),
+    ...new Set([
+      ...catalog.map((c) => c.category),
+      ...libraryCatalog.map((c) => c.category),
+    ]),
     "我的收藏",
   ];
-  const filtered = courses.filter(
+  const filtered = (
+    tab === "community"
+      ? libraryCatalog
+      : courses.filter((c) =>
+          tab === "official" ? c.curated : !c.curated && !c.library,
+        )
+  ).filter(
     (c) =>
-      (tab === "official" ? c.curated : !c.curated) &&
       (category === "全部" || c.category === category) &&
-      `${c.title} ${c.description}`
+      `${c.title} ${c.description} ${c.authorName || ""}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -726,15 +925,16 @@ export function MarketplacePage() {
           <TabsList aria-label="课程来源">
             <TabsTrigger value="official">学习室精选</TabsTrigger>
             <TabsTrigger value="personal">我的自建课程</TabsTrigger>
+            <TabsTrigger value="community">社区课程</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="search-field market-search">
           <Search size={15} />
           <Input
-            aria-label="搜索课程集市"
+            aria-label="搜索课程库"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="在课程集市中搜索课程"
+            placeholder="在课程库中搜索课程"
           />
         </div>
       </header>
@@ -798,20 +998,42 @@ export function MarketplacePage() {
         </Select>
       </div>
       <div className="results-heading">
-        <span>{category === "全部" ? "全部课程" : category}</span>
+        <span>
+          {tab === "community"
+            ? "社区课程"
+            : category === "全部"
+              ? "全部课程"
+              : category}
+        </span>
         <small>{filtered.length} 门课程</small>
       </div>
       {filtered.length ? (
-        <div className="course-grid">
-          {filtered.map((c) => (
-            <CourseCard key={c.id} course={c} />
-          ))}
-        </div>
+        tab === "community" ? (
+          <div className="library-grid">
+            {filtered.map((entry) => (
+              <LibraryCourseCard key={entry.id} entry={entry} />
+            ))}
+          </div>
+        ) : (
+          <div className="course-grid">
+            {filtered.map((c) => (
+              <CourseCard key={c.id} course={c} />
+            ))}
+          </div>
+        )
       ) : (
         <EmptyState
           icon={Search}
-          title="没有找到相关课程"
-          description="调整搜索关键词或分类后重试。"
+          title={
+            tab === "community" && !search
+              ? "社区还没有公开课程"
+              : "没有找到相关课程"
+          }
+          description={
+            tab === "community" && !search
+              ? "作者发布课程后会出现在这里。"
+              : "调整搜索关键词或分类后重试。"
+          }
           action={
             <Button
               variant="secondary"
@@ -1389,7 +1611,7 @@ export function FeedPage() {
     <main className="page feed-page">
       <PageHeader
         eyebrow="学习空间 · 计划与记录"
-        title="学习动态"
+        title="学习计划"
         description="按日查看学习任务，安排下一步学习计划。"
         actions={
           <Button
@@ -1639,6 +1861,7 @@ export function AssistantPage() {
   );
   const [draftProviderId, setDraftProviderId] = useState(null);
   const [draftWebSearch, setDraftWebSearch] = useState(true);
+  const [draftCourseContext, setDraftCourseContext] = useState(null);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const webSearch = conversation?.webSearch ?? draftWebSearch;
   const changeWebSearch = () => {
@@ -1667,7 +1890,7 @@ export function AssistantPage() {
         ),
       }));
   };
-  const courseContext = conversation?.courseContext;
+  const courseContext = conversation?.courseContext || draftCourseContext;
   const contextCourse = courses.find(
     (course) => course.id === courseContext?.courseId,
   );
@@ -1678,26 +1901,49 @@ export function AssistantPage() {
     (lesson) => lesson.id === courseContext?.lessonId,
   );
   const scopeLabel = contextLesson?.title || "整门课程";
-  const changeContext = (value) =>
+  const changeContext = (value) => {
+    if (!conversation) {
+      setDraftCourseContext(value);
+      return;
+    }
     setState((s) => ({
       ...s,
       conversations: s.conversations.map((c) =>
         c.id === conversation.id ? { ...c, courseContext: value } : c,
       ),
     }));
+  };
+  const joinedCourses = courses.filter((course) =>
+    state.joined.includes(course.id),
+  );
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [agentStage, setAgentStage] = useState("正在思考…");
+  const [streamText, setStreamText] = useState("");
+  const [elapsed, setElapsed] = useState(0);
   const activeTurn = useRef(null);
   const controller = useRef(null);
   const input = useRef(null);
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(
+      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [busy]);
   useEffect(() => {
     const openingCreatedConversation = id && id === pendingId;
     setPendingId(null);
     setDraftProviderId(null);
     setDraftWebSearch(true);
+    setDraftCourseContext(null);
     if (!openingCreatedConversation) {
       setText(conversation?.draft || "");
       setFiles(conversation?.files || []);
@@ -1742,6 +1988,7 @@ export function AssistantPage() {
     setBusy(true);
     setError("");
     setAgentStage("正在思考…");
+    setStreamText("");
     controller.current = new AbortController();
     setState((s) => ({
       ...s,
@@ -1767,6 +2014,7 @@ export function AssistantPage() {
               date: new Date().toISOString(),
               files,
               messages,
+              ...(courseContext ? { courseContext } : {}),
             },
             ...s.conversations,
           ],
@@ -1803,7 +2051,12 @@ export function AssistantPage() {
           ),
         ],
         request: (messages, kind, signal) =>
-          aiRequest(messages, kind, signal, undefined, selectedProvider.id),
+          aiStream(messages, {
+            kind,
+            signal,
+            providerId: selectedProvider.id,
+            onDelta: (raw) => setStreamText(streamPreview(raw, kind)),
+          }),
         search: (queries, signal) =>
           researchRequest(queries, signal, "/api/web-search"),
         signal: controller.current.signal,
@@ -1826,6 +2079,7 @@ export function AssistantPage() {
           }));
         },
       });
+      setStreamText("");
       setState((s) => ({
         ...s,
         conversations: s.conversations.map((c) =>
@@ -1847,6 +2101,7 @@ export function AssistantPage() {
         ),
       }));
     } catch (e) {
+      setStreamText("");
       if (e.name !== "AbortError") {
         setError(e.message);
         setText(userText);
@@ -1866,6 +2121,7 @@ export function AssistantPage() {
         }));
       }
     } finally {
+      setStreamText("");
       setBusy(false);
       if (!id) navigate(`/assistant/${cid}`, { replace: true });
     }
@@ -1875,28 +2131,30 @@ export function AssistantPage() {
       as="main"
       className="page assistant-page"
       aria-label="即时协助"
+      data-empty={!conversation?.messages.length && !busy}
       messages={conversation?.messages || []}
       isGenerating={busy}
     >
       <ChatHeader
         title={conversation?.title || "即时协助"}
-        modelName={selectedProvider.name || selectedProvider.model}
       >
-        {state.conversations.length > 0 && (
+        {state.conversations.some((thread) => thread.messages?.length) && (
           <Select
             value={conversation?.id || ""}
             onValueChange={(value) => navigate(`/assistant/${value}`)}
             disabled={busy}
           >
             <SelectTrigger className="easy-chat-history" aria-label="历史对话">
-              <SelectValue placeholder="历史对话" />
+              <SelectValue placeholder="历史对话">历史对话</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {state.conversations.map((thread) => (
-                <SelectItem key={thread.id} value={thread.id}>
-                  {thread.title}
-                </SelectItem>
-              ))}
+              {state.conversations
+                .filter((thread) => thread.messages?.length || thread.id === id)
+                .map((thread) => (
+                  <SelectItem key={thread.id} value={thread.id}>
+                    {thread.title}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         )}
@@ -1958,12 +2216,12 @@ export function AssistantPage() {
             <div className="assistant-welcome-symbol">
               <Sparkles size={28} strokeWidth={1.4} />
             </div>
-            <h2>卡住的地方，一起想明白。</h2>
-            <p>
+            <h2>
               {contextCourse
-                ? `已带上「${contextCourse.title}」，选择整门课程或任意讲次开始聊。`
-                : "拆解一个概念，理清一段思路，或者带上资料继续聊。"}
-            </p>
+                ? "这门课，哪里还没想明白？"
+                : "把疑问说出来，一起想明白。"}
+            </h2>
+            <p>从一个概念、一道题，或一段没看懂的讲义开始。</p>
             <div className="assistant-suggestions">
               {(contextCourse
                 ? [
@@ -1989,6 +2247,8 @@ export function AssistantPage() {
                   key={t}
                   variant="surface"
                   size="surface"
+                  whileHover={{ scale: 1 }}
+                  whileTap={{ scale: 1 }}
                   onClick={() => {
                     setText(t);
                     input.current?.focus();
@@ -1996,20 +2256,39 @@ export function AssistantPage() {
                 >
                   <Icon size={18} strokeWidth={1.5} />
                   <strong>{label}</strong>
-                  <span>{t}</span>
+                  <span>
+                    {
+                      {
+                        梳理路线: "理清重点与学习顺序",
+                        换个例子: "用熟悉的情景重新理解",
+                        检查理解: "通过一个小问题检验",
+                        理解概念: "从具体例子理解原理",
+                        整理思路: "把零散知识连成线",
+                      }[label]
+                    }
+                  </span>
                   <ArrowRight size={15} />
                 </Button>
               ))}
             </div>
           </div>
         )}
-        {busy && (
-          <AIResponse
-            status="generating"
-            statusLabel={agentStage}
-            modelName={selectedProvider.name || selectedProvider.model}
-          />
-        )}
+        {busy &&
+          (streamText.trim() ? (
+            <AIResponse
+              status="streaming"
+              content={streamText}
+              modelName={selectedProvider.name || selectedProvider.model}
+            />
+          ) : (
+            <AIResponse
+              status="generating"
+              statusLabel={
+                elapsed >= 3 ? `${agentStage} · ${elapsed} 秒` : agentStage
+              }
+              modelName={selectedProvider.name || selectedProvider.model}
+            />
+          ))}
       </ChatMessages>
       <div className="assistant-compose-wrap">
         {error && (
@@ -2029,6 +2308,29 @@ export function AssistantPage() {
           onSubmit={send}
           leading={
             <>
+              {!contextCourse && joinedCourses.length > 0 && (
+                <div className="assistant-context-setup">
+                  <BookOpen size={16} aria-hidden="true" />
+                  <Select
+                    value=""
+                    onValueChange={(value) =>
+                      changeContext({ courseId: value, lessonId: null })
+                    }
+                    disabled={busy}
+                  >
+                    <SelectTrigger aria-label="选择课程上下文">
+                      <SelectValue placeholder="关联课程（可选）" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {joinedCourses.map((course) => (
+                        <SelectItem key={course.id} value={course.id}>
+                          {course.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <AssistantCourseContext
                 course={contextCourse}
                 context={courseContext}

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Check, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { Check, Pencil, Plug, Plus, Save, Trash2 } from "lucide-react";
 import { useStore } from "../store";
 import { Button, Field, Input, PasswordInput } from "../design/primitives";
 import { Modal } from "../ui";
@@ -13,6 +13,7 @@ export function ModelSettings() {
   const [draft, setDraft] = useState(empty);
   const [removing, setRemoving] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
   const profiles = provider.profiles || [];
@@ -52,9 +53,33 @@ export function ModelSettings() {
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const data = await response.json();
+    if (response.status === 401)
+      window.dispatchEvent(new Event("knowra-auth-required"));
     if (!response.ok)
       throw new Error(data.error || "模型配置未能保存，请重试。");
     await refreshProvider(data);
+  };
+  const test = async (profile) => {
+    if (testing) return;
+    setTesting(profile.id);
+    setError("");
+    setSaved("");
+    try {
+      const response = await fetch("/api/provider/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: profile.id }),
+      });
+      const data = await response.json();
+      if (response.status === 401)
+        window.dispatchEvent(new Event("knowra-auth-required"));
+      if (!response.ok) throw new Error(data.error || "连接失败，请检查配置。");
+      setSaved(`连接正常：${data.model || profile.model}`);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setTesting("");
+    }
   };
   const save = (event) => {
     event.preventDefault();
@@ -90,8 +115,23 @@ export function ModelSettings() {
                   <strong>{profile.name || profile.model}</strong>
                   <span>{profile.model}</span>
                   <small>{profile.baseUrl}</small>
+                  <span
+                    className={`model-connection ${profile.configured ? "is-ready" : ""}`}
+                  >
+                    {profile.configured ? "已保存密钥" : "缺少密钥"}
+                  </span>
                 </div>
                 <div className="model-settings-actions">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={Plug}
+                    loading={testing === profile.id}
+                    disabled={busy || !profile.configured}
+                    onClick={() => test(profile)}
+                  >
+                    测试连接
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"

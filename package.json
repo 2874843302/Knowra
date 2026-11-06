@@ -29,6 +29,8 @@
     "qa:canvas": "node scripts/qa-classroom-canvas.mjs",
     "qa:narration": "node scripts/qa-board-narration.mjs",
     "test:narration-pacing": "node --test scripts/test-narration-timing.mjs",
+    "test:study-time": "node --test scripts/test-study-session.mjs",
+    "qa:study-time": "node scripts/qa-study-time.mjs",
     "test:tts": "node --test scripts/test-lesson-audio.mjs",
     "qa:tts": "node scripts/qa-model-tts.mjs",
     "qa:narration-pacing": "node scripts/qa-narration-pacing.mjs",

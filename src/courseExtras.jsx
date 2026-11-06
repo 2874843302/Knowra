@@ -90,7 +90,7 @@ export function LearningPath({
       <div className="mastery-overview">
         <span>
           {filter === "all"
-            ? "测验记录自动更新，也可以在小节中自评。"
+            ? "测验记录自动更新，也可以在小节中自评。完成一讲才计入进度，已尝试只表示打开过。"
             : masteryDescriptions[filter]}
         </span>
         <div>

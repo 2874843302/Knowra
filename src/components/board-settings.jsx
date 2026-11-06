@@ -203,9 +203,11 @@ export function BoardSettings({
               {playback.speechStatus === "loading"
                 ? "正在准备讲解语音…"
                 : playback.speechService?.ready
-                  ? playback.voiceId === "friendly-female"
-                    ? "高品质音色 · 准备时间较长"
-                    : "流畅优先 · 本地语音"
+                  ? playback.voiceId?.startsWith("tencent-")
+                    ? "腾讯云语音 · 讲解文本会发送到腾讯云"
+                    : playback.voiceId === "friendly-female"
+                      ? "高品质音色 · 准备时间较长"
+                      : "流畅优先 · 本地语音"
                   : playback.speechService?.message || "正在连接语音服务…"}
             </p>
             <div className="board-settings-navigation">

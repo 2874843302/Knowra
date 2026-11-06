@@ -6,6 +6,7 @@ import { useLessonPlayback } from "./useLessonPlayback";
 import { useCheckpointExplanation } from "./useCheckpointExplanation";
 import { useBoardCanvas } from "./useBoardCanvas";
 import { useBoardLayout } from "./useBoardLayout";
+import { useStudySession } from "./useStudySession";
 import { composeClassroomSequence } from "./lib/adaptive-classroom";
 import { LessonStage, LessonPlaybackControls } from "./components/lesson-stage";
 import { TeachingMarkdown, TeachingVisual } from "./teachingContent";
@@ -19,6 +20,7 @@ import {
   Hand,
   TextCursor,
   LocateFixed,
+  Play,
 } from "lucide-react";
 import { useStore } from "./store";
 import { Md } from "./pages";
@@ -85,6 +87,7 @@ export function ClassroomBoard({
     active: active && mode === "board",
     pauseSignal,
   });
+  useStudySession({ active, playing: playback.playing });
   const page = playback.current?.page || 0;
   const reducedMotion = useReducedMotion();
   const currentBlock = useRef(null);
@@ -180,6 +183,11 @@ export function ClassroomBoard({
     active,
     playback.finished,
   ]);
+  const firstRun =
+    playback.index === 0 &&
+    !playback.playing &&
+    !playback.finished &&
+    playback.revealedProgress === 0;
   const clips = state.highlights?.[key] || [];
   const focusExcerpt = (clip) => {
     const matches = sequence.steps.filter((step) => step.page === clip.page);
@@ -250,6 +258,20 @@ export function ClassroomBoard({
       data-board-font={boardFont.id}
       style={{ "--font-board": boardFont.family }}
     >
+      {playerHost &&
+        firstRun &&
+        createPortal(
+          <div className="classroom-first-run-layer">
+            <div className="classroom-first-run" role="status">
+              <span>准备好了吗？</span>
+              <strong>点击开始，跟着板书学这一讲</strong>
+              <Button variant="primary" icon={Play} onClick={playback.toggle}>
+                开始讲解
+              </Button>
+            </div>
+          </div>,
+          playerHost,
+        )}
       {playerHost?.querySelector("[data-board-settings-host]") &&
         createPortal(
           <BoardSettings

@@ -32,6 +32,7 @@ class CourseInput(BaseModel):
     foundation: str = Field(default="", max_length=1000)
     depth: Literal["recommended", "overview", "systematic", "deep"] = "recommended"
     scale: str = Field(default="", max_length=1000)
+    mode: Literal["auto", "explain", "course"] = "auto"
     request_id: UUID | None = None
     learningMode: Literal["self", "school"] = "self"
     schoolContext: SchoolContext = Field(default_factory=SchoolContext)

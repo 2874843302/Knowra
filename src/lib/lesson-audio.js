@@ -10,6 +10,8 @@ export class LessonAudio {
     this.url = url;
     this.cache = new Map();
     this.record = null;
+    this.feedback = null;
+    this.feedbackKey = null;
     this.disposed = false;
   }
 
@@ -55,13 +57,62 @@ export class LessonAudio {
   trim() {
     for (const [key, entry] of this.cache) {
       if (this.cache.size <= 48) break;
-      if (!entry.url || key === this.record?.key) continue;
+      if (
+        !entry.url ||
+        key === this.record?.key ||
+        key === this.feedbackKey
+      )
+        continue;
       this.url.revokeObjectURL(entry.url);
       this.cache.delete(key);
     }
   }
 
+  stopFeedback() {
+    const audio = this.feedback;
+    this.feedback = null;
+    this.feedbackKey = null;
+    if (!audio) return;
+    audio.onended = audio.onerror = null;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+
+  async playText(text, voice, rate = 1) {
+    if (this.disposed || !text?.trim()) return false;
+    const value = text.trim().slice(0, 600);
+    this.stopFeedback();
+    const url = await this.prepare(value, voice);
+    if (this.disposed) return false;
+    const audio = this.audioFactory();
+    this.feedback = audio;
+    this.feedbackKey = JSON.stringify([value, voice]);
+    audio.src = url;
+    audio.playbackRate = rate;
+    audio.onended = () => {
+      if (this.feedback === audio) {
+        this.feedback = null;
+        this.feedbackKey = null;
+      }
+    };
+    audio.onerror = () => {
+      if (this.feedback === audio) {
+        this.feedback = null;
+        this.feedbackKey = null;
+      }
+    };
+    try {
+      await audio.play();
+      return true;
+    } catch {
+      if (this.feedback === audio) this.stopFeedback();
+      return false;
+    }
+  }
+
   stop() {
+    this.stopFeedback();
     const record = this.record;
     this.record = null;
     if (!record?.audio) return;

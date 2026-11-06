@@ -293,6 +293,7 @@ export function useLessonPlayback(key, sequence, active, pauseSignal) {
     voiceId: speech.voiceId,
     speechStatus: speech.status,
     speechService: speech.service,
+    speakFeedback: speech.speakFeedback,
     setVoiceId: (narrationVoiceId) =>
       setState((s) => ({
         ...s,

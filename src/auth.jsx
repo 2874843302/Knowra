@@ -86,6 +86,11 @@ export function AuthProvider({ children }) {
       window.removeEventListener("knowra-auth-required", expired);
     };
   }, []);
+  const rememberRecovery = (value) => {
+    if (!value?.recoveryCode) return;
+    sessionStorage.setItem("knowra-recovery-code", value.recoveryCode);
+    window.dispatchEvent(new Event("knowra-recovery-code"));
+  };
   const authenticate = async (signup, payload) => {
     const value = await accountRequest(
       `/auth/${signup ? "register" : "login"}`,
@@ -93,8 +98,16 @@ export function AuthProvider({ children }) {
     );
     generation.current++;
     setError("");
+    rememberRecovery(value);
     setUser(value.user);
-    return value.user;
+    return value;
+  };
+  const recover = async (payload) => {
+    const value = await accountRequest("/auth/recover", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return value;
   };
   const logout = async () => {
     await accountRequest("/auth/logout", { method: "POST" });
@@ -117,7 +130,9 @@ export function AuthProvider({ children }) {
     if (!loading && user && isAuthRoute) navigate(returnTo, { replace: true });
   }, [loading, user, isAuthRoute, returnTo, navigate]);
   return (
-    <AuthContext.Provider value={{ user, authenticate, logout, refresh }}>
+    <AuthContext.Provider
+      value={{ user, authenticate, recover, logout, refresh }}
+    >
       {loading ? (
         <WorkspaceLoading />
       ) : user ? (
