@@ -2,6 +2,8 @@ import json
 import secrets
 
 import httpx
+import pytest
+from fastapi import HTTPException
 
 from app.services.provider import Provider
 
@@ -64,27 +66,40 @@ def test_unknown_profile_cannot_fall_back_or_reuse_another_key(client):
     assert len(client.get("/api/provider").json()["profiles"]) == 1
 
 
-def test_legacy_environment_and_file_migration(client):
+def test_legacy_environment_bootstrap_survives_reopen_and_deletion(client):
     service = client.app.state.provider
     key = secrets.token_urlsafe(24)
-    service.path.write_text(json.dumps({"baseUrl": "https://legacy.example.test/v1", "model": "legacy", "apiKey": key}), encoding="utf-8")
+    service.settings.ai_base_url = "https://environment.example.test/v1"
+    service.settings.ai_model = "environment"
+    service.settings.ai_api_key = key
     initial = client.get("/api/provider").json()
     assert initial["activeId"] == "default" and len(initial["profiles"]) == 1
     assert service.read()["apiKey"] == key
     new_id, _ = add(client, "new")
-    restored = Provider(service.settings)
+    restored = Provider(service.settings, service.db, service.cipher)
     assert restored.read("default")["apiKey"] == key
     assert len(restored.public()["profiles"]) == 2
     assert client.put("/api/provider/active", json={"id": new_id}).status_code == 200
-    assert Provider(service.settings).public()["activeId"] == new_id
-    service.path.unlink()
-    service.settings.ai_base_url = "https://environment.example.test/v1"
-    service.settings.ai_model = "environment"
-    service.settings.ai_api_key = key
-    assert client.get("/api/provider").json()["model"] == "environment"
+    assert Provider(service.settings, service.db, service.cipher).public()["activeId"] == new_id
     assert client.delete("/api/provider/default").status_code == 200
+    assert client.delete(f"/api/provider/{new_id}").status_code == 200
     # An explicitly emptied list must not silently resurrect environment defaults.
-    assert Provider(service.settings).public()["profiles"] == []
+    assert Provider(service.settings, service.db, service.cipher).public()["profiles"] == []
+
+
+def test_api_keys_are_encrypted_in_postgres(client):
+    from app.services.secrets import Cipher, generate_key
+
+    profile_id, key = add(client, "secretive")
+    service = client.app.state.provider
+    with service.db.connect() as db:
+        stored = db.execute("SELECT api_key FROM provider_profiles WHERE id = %s", (profile_id,)).fetchone()["api_key"]
+    assert key not in stored
+    assert service.cipher.decrypt(stored) == key
+    # A different master key must fail loudly instead of returning garbage.
+    with pytest.raises(HTTPException) as error:
+        Cipher(generate_key()).decrypt(stored)
+    assert error.value.status_code == 503
 
 
 def test_profiles_are_account_scoped(client):

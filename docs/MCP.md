@@ -63,7 +63,7 @@
 
 登录使用 HttpOnly、SameSite=Lax Cookie；HTTPS 请求设置 Secure。数据库仅保存密码的 PBKDF2 哈希及会话/MCP 令牌哈希。用户身份从服务端会话或令牌确定，`X-Workspace-Id` 不再作为授权依据。`X-Account-Id` 仅作为防止切换账号后旧页面误写的校验，不能用来登录。
 
-数据保存在 `KNOWRA_DATABASE_URL` 指定的 PostgreSQL；上传文件在 `.local/uploads/<workspace UUID>/`；首个账号沿用 `.local/provider.json`，后续账号使用 `.local/users/<user UUID>/provider.json`。备份时导出 PostgreSQL 并保留整个数据目录，详见 [数据库文档](DATABASE.md)。完整 MCP 凭证不会包含在网页备份或令牌列表中。
+数据保存在 `KNOWRA_DATABASE_URL` 指定的 PostgreSQL；上传原文件在 `material_blobs` 表，模型配置在 `provider_profiles` 表且 API 密钥经 `KNOWRA_SECRET_KEY` 加密后存储。备份时导出 PostgreSQL 即可覆盖这两类数据，另外单独保管主密钥；仍留在磁盘的只有语音模型与合成缓存。详见 [数据库文档](DATABASE.md)。完整 MCP 凭证不会包含在网页备份或令牌列表中。
 
 ## 验证
 

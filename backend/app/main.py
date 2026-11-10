@@ -13,6 +13,7 @@ from app.api.auth_routes import router as auth_router
 from app.core.config import ROOT, Settings
 from app.services.database import Database
 from app.services.provider import Provider
+from app.services.secrets import Cipher
 from app.services.auth import Auth
 from app.services.course_jobs import CourseJobs
 from app.services.library import Library
@@ -29,6 +30,13 @@ def create_app(settings=None):
     # Windows registry MIME mappings may omit web fonts.
     mimetypes.add_type("font/woff2", ".woff2")
     config = settings or Settings()
+    secret = config.knowra_secret_key.get_secret_value().strip()
+    if not secret:
+        raise RuntimeError(
+            "缺少 KNOWRA_SECRET_KEY：模型密钥需要加密后才能入库。"
+            "请运行 python scripts/secret-key.py 生成，并写入 .env 或部署环境变量。"
+        )
+    cipher = Cipher(secret)
     @asynccontextmanager
     async def lifespan(app):
         async with app.state.mcp.session_manager.run():
@@ -42,7 +50,9 @@ def create_app(settings=None):
 
     app = FastAPI(title="Knowra Learning API", version="2.1.0", lifespan=lifespan)
     app.state.database = Database(config)
-    app.state.provider = Provider(config)
+    app.state.cipher = cipher
+    app.state.provider = Provider(config, app.state.database, cipher)
+    app.state.provider_accounts = {}
     app.state.auth = Auth(app.state.database)
     app.state.tts = LocalTTS(config)
     app.state.asr = LocalASR(config)

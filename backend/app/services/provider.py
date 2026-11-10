@@ -7,6 +7,8 @@ from threading import RLock
 import httpx
 from fastapi import HTTPException
 
+from app.services.database import now
+
 
 def generation_reasoning_options(config, kind, repairing, effort):
     # DeepSeek-specific options must not leak into other compatible providers
@@ -148,9 +150,11 @@ def local_proxy_error(response):
 class Provider:
     _lock = RLock()
 
-    def __init__(self, settings):
+    def __init__(self, settings, db=None, cipher=None, user_id=None):
         self.settings = settings
-        self.path = settings.knowra_data_dir / "provider.json"
+        self.db = db
+        self.cipher = cipher
+        self.user_id = user_id
 
     @staticmethod
     def _local_defaults(config):
@@ -159,20 +163,39 @@ class Provider:
             config["apiKey"] = config["apiKey"] or "local-deepseek"
         return config
 
-    def _catalog(self):
-        try:
-            saved = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            saved = {}
-        if "profiles" in saved:
-            return saved
-        config = {"baseUrl": self.settings.ai_base_url or saved.get("baseUrl", ""),
-                "model": self.settings.ai_model or saved.get("model", ""),
-                "apiKey": self.settings.ai_api_key or saved.get("apiKey", "")}
+    def actor(self):
+        if self.db is None:
+            return None
+        if self.user_id:
+            return self.user_id
+        with self.db.connect() as db:
+            row = db.execute("SELECT id FROM users WHERE is_owner = 1 ORDER BY created_at LIMIT 1").fetchone()
+        return row["id"] if row else None
+
+    def _bootstrap(self):
+        config = {"baseUrl": self.settings.ai_base_url, "model": self.settings.ai_model,
+                  "apiKey": self.settings.ai_api_key.get_secret_value() if hasattr(self.settings.ai_api_key, "get_secret_value") else self.settings.ai_api_key}
         self._local_defaults(config)
-        # Bootstrap legacy settings once; later edits and selection take precedence.
+        # Bootstrap legacy environment settings once; later edits and selection take precedence.
         profiles = [{"id": "default", "name": config["model"], **config}] if any(config.values()) else []
         return {"activeId": "default" if profiles else None, "profiles": profiles}
+
+    def _catalog(self):
+        user_id = self.actor()
+        if user_id is None:
+            return self._bootstrap()
+        with self.db.connect() as db:
+            rows = db.execute("SELECT * FROM provider_profiles WHERE user_id = %s ORDER BY created_at", (user_id,)).fetchall()
+            setting = db.execute("SELECT active_profile_id FROM user_settings WHERE user_id = %s", (user_id,)).fetchone()
+        profiles = [{"id": row["id"], "name": row["name"], "baseUrl": row["base_url"], "model": row["model"],
+                     "apiKey": self.cipher.decrypt(row["api_key"]), "createdAt": row["created_at"]} for row in rows]
+        if profiles:
+            return {"activeId": (setting or {}).get("active_profile_id"), "profiles": profiles}
+        # A stored settings row means this account already chose to have none;
+        # resurrecting environment defaults would undo an explicit deletion.
+        if setting is not None:
+            return {"activeId": None, "profiles": []}
+        return self._bootstrap()
 
     def read(self, profile_id=None):
         catalog = self._catalog()
@@ -192,10 +215,23 @@ class Provider:
                 **(active or {}), "activeId": catalog["activeId"], "profiles": profiles}
 
     def _write(self, catalog):
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(catalog), encoding="utf-8")
-        temporary.chmod(0o600)
-        temporary.replace(self.path)
+        user_id = self.actor()
+        if user_id is None:
+            raise HTTPException(503, "请先注册账号，再保存模型配置。")
+        stamp = now()
+        with self.db.connect() as db:
+            db.execute("DELETE FROM provider_profiles WHERE user_id = %s", (user_id,))
+            for profile in catalog["profiles"]:
+                db.execute(
+                    "INSERT INTO provider_profiles VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (user_id, profile["id"], profile.get("name", ""), profile["baseUrl"], profile["model"],
+                     self.cipher.encrypt(profile.get("apiKey", "")), profile.get("createdAt") or stamp, stamp),
+                )
+            db.execute(
+                "INSERT INTO user_settings VALUES (%s, %s, %s) ON CONFLICT (user_id) DO UPDATE "
+                "SET active_profile_id = EXCLUDED.active_profile_id, updated_at = EXCLUDED.updated_at",
+                (user_id, catalog["activeId"], stamp),
+            )
 
     def save(self, value, *, create=False):
         with self._lock:
@@ -223,6 +259,7 @@ class Provider:
         config["name"] = config["name"].strip() or config["model"]
         if not all(config.get(key) for key in ("baseUrl", "model", "apiKey")):
             raise HTTPException(400, "请填写接口地址、模型名称和 API 密钥。")
+        config["createdAt"] = previous["createdAt"] if previous else now()
         config["id"] = previous["id"] if previous else str(uuid4())
         if previous:
             catalog["profiles"] = [config if p["id"] == config["id"] else p for p in catalog["profiles"]]

@@ -1,3 +1,4 @@
+from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -61,16 +62,25 @@ def save_material(db, workspace_id, filename, content):
         raise HTTPException(422, "没有提取到文字或内容超过 15 万字符，请检查并拆分文件。")
     material_id = str(uuid4())
     date = now()
-    directory = db.directory / "uploads" / workspace_id
-    directory.mkdir(parents=True, exist_ok=True)
-    file_path = directory / material_id
-    file_path.write_bytes(content)
-    try:
-        with db.connect() as connection:
-            connection.execute("INSERT INTO materials VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                               (material_id, workspace_id, name, len(content), text, date, extension))
-    except Exception:
-        file_path.unlink(missing_ok=True)
-        raise
+    digest = sha256(content).hexdigest()
+    # Metadata and the original bytes share one transaction: an upload is either
+    # fully stored or absent, with no orphan file left on disk.
+    with db.connect() as connection:
+        connection.execute("INSERT INTO materials VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                           (material_id, workspace_id, name, len(content), text, date, extension))
+        connection.execute("INSERT INTO material_blobs VALUES (%s, %s, %s, %s, %s)",
+                           (material_id, content, digest, len(content), date))
     return {"id": material_id, "name": name, "size": len(content), "text": text,
             "date": date, "extension": extension, "original": True}
+
+
+def read_material(db, workspace_id, material_id):
+    with db.connect() as connection:
+        row = connection.execute(
+            "SELECT m.name, b.content FROM materials m JOIN material_blobs b ON b.material_id = m.id "
+            "WHERE m.id = %s AND m.workspace_id = %s",
+            (str(material_id), workspace_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(404, "原文件不存在。")
+    return row["name"], bytes(row["content"])

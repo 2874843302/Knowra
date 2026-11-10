@@ -1,13 +1,14 @@
 import json
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi.responses import StreamingResponse
 
 from app.schemas import AIRequest, CourseResearchRequest, InitializeWorkspace, ProviderInput, ProviderSelection, UpdateWorkspace
 from app.services.course_research import search_courses
-from app.services.documents import MAX_BYTES, save_material
+from app.services.documents import MAX_BYTES, read_material, save_material
 from app.services.course_jobs import user_provider
 from app.services.provider import STREAMABLE_KINDS
 
@@ -58,13 +59,12 @@ def upload_material(file: Annotated[UploadFile, File()], workspace_id=Depends(wo
 
 @router.get("/materials/{material_id}/file")
 def original_material(material_id: UUID, workspace_id=Depends(workspace), db=Depends(database)):
-    with db.connect() as connection:
-        row = connection.execute("SELECT name FROM materials WHERE id = %s AND workspace_id = %s",
-                                 (str(material_id), workspace_id)).fetchone()
-    if row is None:
-        raise HTTPException(404, "原文件不存在。")
-    return FileResponse(db.directory / "uploads" / workspace_id / str(material_id),
-                        filename=row["name"], media_type="application/octet-stream")
+    name, content = read_material(db, workspace_id, material_id)
+    fallback = name.encode("ascii", "ignore").decode().strip() or "material"
+    return Response(content=content, media_type="application/octet-stream", headers={
+        "Content-Disposition": f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name)}",
+        "Content-Length": str(len(content)),
+    })
 
 
 @router.get("/provider")

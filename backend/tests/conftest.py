@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.config import Settings
 from app.main import create_app
+from app.services.secrets import generate_key
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +25,7 @@ def isolated_postgres(monkeypatch):
     schema = "test_" + uuid4().hex
     monkeypatch.setenv("KNOWRA_DATABASE_URL", url)
     monkeypatch.setenv("KNOWRA_DATABASE_SCHEMA", schema)
+    monkeypatch.setenv("KNOWRA_SECRET_KEY", generate_key())
     yield
     with psycopg.connect(url, autocommit=True) as db:
         db.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema)))

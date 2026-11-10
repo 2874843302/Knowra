@@ -54,9 +54,11 @@ class CourseInput(BaseModel):
 def user_provider(app, user):
     if user["is_owner"]:
         return app.state.provider
-    settings = app.state.provider.settings.model_copy(update={"knowra_data_dir": app.state.database.directory / "users" / user["id"]})
-    settings.knowra_data_dir.mkdir(parents=True, exist_ok=True)
-    return Provider(settings)
+    cached = app.state.provider_accounts.get(user["id"])
+    if cached is None:
+        cached = Provider(app.state.provider.settings, app.state.database, app.state.cipher, user["id"])
+        app.state.provider_accounts[user["id"]] = cached
+    return cached
 
 
 class CourseJobs:

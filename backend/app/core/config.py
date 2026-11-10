@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     knowra_database_url: SecretStr = SecretStr("")
     knowra_database_schema: str = Field(default="public", pattern=r"^[a-z_][a-z0-9_]{0,62}$")
     knowra_database_pool_size: int = Field(default=10, ge=1, le=100)
+    knowra_secret_key: SecretStr = SecretStr("")
     ai_base_url: str = ""
     ai_model: str = ""
     ai_api_key: str = ""

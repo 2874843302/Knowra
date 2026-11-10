@@ -10,9 +10,12 @@
 KNOWRA_POSTGRES_PASSWORD=请替换为自己生成的强密码
 KNOWRA_DATABASE_URL=postgresql://knowra:同一个密码@127.0.0.1:5432/knowra
 KNOWRA_DATABASE_POOL_SIZE=10
+KNOWRA_SECRET_KEY=请运行 python scripts/secret-key.py 生成
 ```
 
 密码含特殊字符时需要在 URL 中百分号编码。不要把 `.env` 提交到 Git。使用已有 PostgreSQL 时，填写已有的数据库地址、账号和密码，无需启动容器。
+
+`KNOWRA_SECRET_KEY` 是模型 API 密钥的加密主密钥，只放在配置里，不入库、不出现在任何接口响应中。未设置时后端启动即报错。它没有轮换机制：换掉或丢失主密钥后，已保存的模型密钥无法解密，需要在设置页重新填写，因此请把它单独备份。
 
 ```powershell
 docker compose up -d postgres
@@ -46,12 +49,24 @@ Compose 的 `knowra-postgres` 卷保存数据库文件；只监听本机 5432。
 
 5. 确认输出的七张表行数正确，再启动后端。`GET /api/health` 应返回 `database: postgresql`。
 
-导入在单个 PostgreSQL 事务中完成；只读打开 SQLite，保留原文件。逐表核对行数及内容 SHA-256，目标中任何业务表已有数据都会拒绝导入。失败会全部回滚。账户 ID、密码哈希、有效会话、MCP 凭证哈希、工作区、课程任务断点和资料记录原样保留；上传原文件和 AI 配置继续使用原 `.local` 路径。服务恢复时，旧的进行中课程任务按原有规则标为 interrupted，不自动重放 AI 请求。
+导入在单个 PostgreSQL 事务中完成；只读打开 SQLite，保留原文件。逐表核对行数及内容 SHA-256，目标中任何业务表已有数据都会拒绝导入。失败会全部回滚。账户 ID、密码哈希、有效会话、MCP 凭证哈希、工作区、课程任务断点和资料记录原样保留；上传原文件与 AI 配置仍留在 `.local`，导入完成后需再运行下文的磁盘记录入库脚本。服务恢复时，旧的进行中课程任务按原有规则标为 interrupted，不自动重放 AI 请求。
 
 新版本开始写入后，旧 SQLite 不再同步。回退只能恢复迁移时的快照；不要直接切回旧库丢弃新增数据。
+
+## 磁盘记录迁入 PostgreSQL
+
+上传原件与模型配置现在都在库里：`material_blobs` 保存资料原始字节（与 `materials` 行同事务写入，逐条记录 SHA-256），`provider_profiles` 保存加密后的模型密钥。升级到本版本后运行一次：
+
+```powershell
+.venv\Scripts\python.exe scripts\migrate-files-to-postgres.py
+```
+
+脚本按 `materials` 记录逐个导入并回读校验 SHA-256，模型配置导入后回读解密比对。全部通过后把 `.local/uploads/` 改名为 `.local/uploads.pre-pg/`、`provider.json` 改名为 `provider.json.pre-pg`，不删除任何文件；找不到对应记录的孤立文件会保留原位并列出。校验失败或存在冲突时立即停止，磁盘文件保持原样。重复执行安全：已入库且摘要一致的文件跳过，已有模型配置的账号不覆盖。
+
+上传接口不再写磁盘，因此新文件只有数据库这一份；`GET /api/materials/{id}/file` 从 `material_blobs` 读取，跨工作区访问返回 404。
 
 ## 测试与备份
 
 创建专用测试数据库，并设置 `KNOWRA_TEST_DATABASE_URL` 后运行 `npm test`。每项测试使用独立随机 schema，结束后仅删除该 schema；不允许指向正式业务库。测试真实执行 PostgreSQL SQL，不使用 SQLite 替代。
 
-备份 PostgreSQL 使用 `pg_dump`，恢复使用 `pg_restore`，同时备份 `.local/uploads/`、`.local/provider.json` 和 `.local/users/`。数据库连接密码和 AI 密钥不会写入 API 响应或示例配置。`/api/health` 会实际执行数据库查询，数据库不可用时不会报告正常。
+备份 PostgreSQL 使用 `pg_dump`，恢复使用 `pg_restore`；原件与模型配置已在库内，`pg_dump` 即覆盖，另外需单独备份 `KNOWRA_SECRET_KEY`，否则恢复后已保存的模型密钥无法解密。语音模型与合成音频缓存仍在 `.local/tts/`、`.local/asr/`，属于可重新生成的本地文件。迁移校验后改名保留的 `.local/uploads.pre-pg/` 与 `provider.json.pre-pg` 只作回滚点，确认无误后可自行删除。数据库连接密码和 AI 密钥不会写入 API 响应或示例配置。`/api/health` 会实际执行数据库查询，数据库不可用时不会报告正常。
